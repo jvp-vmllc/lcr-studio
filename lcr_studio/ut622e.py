@@ -322,6 +322,45 @@ class SimulatedUT622E(UT622E):
         elif head == "COMP:COUN": s["counter"] = on
         elif head == "DEMO:PARTS": self.parts_mode = on
 
+    def set_fixture(self, fixture: str | None):
+        """Simulator only: which flyback connection the operator has made (None = demo capacitor)."""
+        self.fixture = fixture
+
+    # Demo flyback transformer: 620 µH gapped primary, 9.2 µH leakage, secondary + aux + two spares.
+    FB_LP, FB_LLK, FB_RDC = 620e-6, 9.2e-6, 0.42
+    FB_TURNS = [6.2, 4.1, 8.0, 3.0]
+    FB_SEC_RDC = [0.011, 0.36, 0.02, 0.5]
+
+    def _dut(self, w, f, volts):
+        """Impedance and DC resistance of whatever is on the test leads."""
+        level = 1 + 0.024 * (volts - 0.1)                 # permeability rises slightly with drive level
+        skin = 1 + 0.35 * math.sqrt(f / 1e5)              # AC winding resistance
+        fx = getattr(self, "fixture", None)
+        if fx == "PRI_OPEN":
+            lm = self.FB_LP * level
+            zm = 1 / (1 / (1j * w * lm) + 1 / 85e3 + 1j * w * 42e-12)   # core loss + winding capacitance
+            return self.FB_RDC * skin + zm, self.FB_RDC
+        if fx == "PRI_SHORT":
+            llk = self.FB_LLK * (1 + 0.004 * (volts - 0.1))
+            r = (self.FB_RDC + self.FB_SEC_RDC[0] * self.FB_TURNS[0] ** 2 * 0.5) * (1 + 0.9 * math.sqrt(f / 1e5))
+            return complex(r, w * llk), self.FB_RDC
+        if fx and fx.startswith("SEC"):
+            i = int(fx[3:]) % len(self.FB_TURNS)
+            n2 = self.FB_TURNS[i] ** 2
+            ls = self.FB_LP * level / n2
+            zm = 1 / (1 / (1j * w * ls) + n2 / 85e3)
+            return self.FB_SEC_RDC[i] * skin + zm, self.FB_SEC_RDC[i]
+        c = self.C
+        if self.parts_mode:                      # 0.6 s empty fixture, then a part for 2.4 s
+            age = time.monotonic() - self._part_since
+            if age > 3.0:
+                self._part_since = time.monotonic()
+                self._part_c = self.C * (1 + random.gauss(0, 0.012))
+                age = 0.0
+            c = 2e-13 if age < 0.6 else self._part_c
+        zc = 1 / (1j * w * c)
+        return self.ESR + 1j * w * self.ESL + (zc * self.RLEAK) / (zc + self.RLEAK), self.RLEAK
+
     def _measure(self, wait):
         from .engmath import params_from_z
         period = {"SLOW": 0.5, "MED": 0.2, "FAST": 0.05}.get(self.s["speed"], 0.2)
@@ -332,20 +371,11 @@ class SimulatedUT622E(UT622E):
         self._last = time.monotonic()
         s = self.s
         noise = lambda: 1 + random.gauss(0, 0.0004)
+        f = FREQ_HZ[s["frequency"]]
+        z, dcr = self._dut(2 * math.pi * f, f, float(s["level"].rstrip("V")))
         if s["primary"] == "DCR":
-            return f"{self.RLEAK * noise():+.5e},{0:+.5e},N"
-        w = 2 * math.pi * FREQ_HZ[s["frequency"]]
-        c = self.C
-        if self.parts_mode:                      # 0.6 s empty fixture, then a part for 2.4 s
-            age = time.monotonic() - self._part_since
-            if age > 3.0:
-                self._part_since = time.monotonic()
-                self._part_c = self.C * (1 + random.gauss(0, 0.012))
-                age = 0.0
-            c = 2e-13 if age < 0.6 else self._part_c
-        zc = 1 / (1j * w * c)
-        z = self.ESR + 1j * w * self.ESL + (zc * self.RLEAK) / (zc + self.RLEAK)
-        p = params_from_z(z, FREQ_HZ[s["frequency"]])
+            return f"{dcr * noise():+.5e},{0:+.5e},N"
+        p = params_from_z(z, f)
         ser = s["equivalent"] == "SER"
         prim = {
             "C": p["Cs"] if ser else p["Cp"], "L": p["Ls"] if ser else p["Lp"],

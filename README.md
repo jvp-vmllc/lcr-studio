@@ -5,8 +5,8 @@
 # LCR Studio
 
 **A modern desktop application for the UNI-T UT622E handheld LCR meter.**<br>
-Live readout, equivalent-circuit analysis, frequency sweeps, component sorting & matching,<br>
-data logging and engineering calculators, all over the meter's USB cable.
+Live readout, **flyback transformer testing with one-page PDF reports**, equivalent-circuit analysis,<br>
+frequency sweeps, component sorting & matching, data logging and engineering calculators, all over the meter's USB cable.
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-.deb-FCC624?logo=linux&logoColor=black)
@@ -66,6 +66,45 @@ serial port), start LCR Studio, and it connects automatically.
 <tr>
 <td align="center"><sub>Dark theme</sub></td>
 <td align="center"><sub>Light theme, one click in the title bar</sub></td>
+</tr>
+</table>
+
+### Flyback transformer test
+
+A guided test for flyback (and other multi-winding) transformers, producing a **one-page US Letter PDF
+report** per unit.
+
+1. **Primary inductance Lp:** primary connected, all other windings open. Measured over every selected
+   frequency × test level, plus the primary DC resistance.
+2. **Leakage inductance Llk:** primary connected, every other winding shorted.
+3. **Each secondary / auxiliary winding:** inductance at every test level, DC resistance and an estimated turns
+   ratio √(Lp/Ls).
+
+A wiring diagram shows where to clip the leads and which windings to short for each step. From the
+measurements it derives the **leakage ratio, coupling coefficient k = √(1 − Llk/Lp), Q, ESR and Lp level
+dependence**. Lp nominal ± tolerance, Llk max, Llk/Lp max and per-winding DCR max are checked at the
+specification frequency and level. Profiles save as JSON so a production line can load a part in one click.
+Raw data exports to Excel.
+
+<img src="docs/images/flyback.png" alt="Flyback tab: guided steps, wiring diagram, live charts and pass/fail summary" width="100%">
+
+<table>
+<tr>
+<td width="46%"><img src="docs/images/flyback-report.png" alt="One-page flyback transformer test report"></td>
+<td>
+
+**The report** (vector PDF, US Letter) contains:
+
+- a PASS / FAIL / INCOMPLETE verdict
+- part, serial, operator, date, instrument identity and open/short correction status
+- a results table with conditions, limits and per-parameter results
+- **Lp vs frequency** and **Llk vs frequency**, one curve per test level
+- **Level dependence** of Lp and Llk at the spec frequency
+- **Primary Q vs frequency**
+- the full Lp and Llk matrices (level × frequency)
+- signature lines for tester and reviewer
+
+</td>
 </tr>
 </table>
 
@@ -196,7 +235,9 @@ lcr_studio/
   worker.py        background thread that owns the serial port
   engmath.py       SI formatting, impedance math, E-series tables
   theme.py         dark / light themes
-  panels/          one module per tab (measure, sweep, sorting, logger, tools, console, controls)
+  flyback.py       flyback test: profile, guided steps, measurement job, pass/fail evaluation
+  report.py        one-page US Letter PDF report renderer
+  panels/          one module per tab (measure, flyback, sweep, sorting, logger, tools, console, controls)
   assets/          icon and bundled Barlow font
 packaging/         PyInstaller build script, .desktop file, udev rule, icon
 scripts/           screenshot generator

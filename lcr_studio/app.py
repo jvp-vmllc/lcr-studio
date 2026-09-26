@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QAbstractSpinBox, QComboBox, QPlainTextEdit
 from . import __version__
 from .panels.console import ConsolePanel
 from .panels.controls import ControlPanel
+from .panels.flyback import FlybackPanel
 from .panels.logger import LogPanel
 from .panels.measure import MeasurePanel
 from .panels.sorting import MatchingPanel, SortingPanel
@@ -63,13 +64,14 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         self.measure = MeasurePanel()
+        self.flyback = FlybackPanel(self.worker, self.settings)
         self.sweep = SweepPanel(self.worker)
         self.sorting = SortingPanel(self.worker)
         self.matching = MatchingPanel()
         self.log = LogPanel()
         self.tools = ToolsPanel()
         self.console = ConsolePanel(self.worker)
-        for w, name in [(self.measure, "Measure"), (self.sweep, "Sweep"), (self.sorting, "Sorting"),
+        for w, name in [(self.measure, "Measure"), (self.flyback, "Flyback"), (self.sweep, "Sweep"), (self.sorting, "Sorting"),
                         (self.matching, "Matching"), (self.log, "Data log"), (self.tools, "Tools"),
                         (self.console, "Console")]:
             self.tabs.addTab(w, name)
@@ -128,6 +130,10 @@ class MainWindow(QMainWindow):
         w.reading.connect(self._on_reading)
         w.status.connect(lambda m: self._msg(m, 6000))
         w.progress.connect(self.sweep.on_progress)
+        w.progress.connect(self.flyback.on_progress)
+        w.jobPartial.connect(self.flyback.on_partial)
+        w.jobDone.connect(self.flyback.on_done)
+        w.jobError.connect(self.flyback.on_error)
         w.jobPartial.connect(self.sweep.on_partial)
         w.jobDone.connect(self.sweep.on_done)
         w.jobError.connect(self.sweep.on_error)
@@ -176,6 +182,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("baud", self.controls.baud.currentData())
         self.controls.set_connected(True, idn)
         self.sweep.set_connected(True)
+        self.flyback.set_connected(True, idn)
         self.sorting.set_connected(True)
         model = idn.split(",")[1] if "," in idn else "meter"
         self.conn_badge.setText(f"● {model} · {'DEMO' if self.port_name == DEMO_PORT else self.port_name}")
@@ -185,6 +192,7 @@ class MainWindow(QMainWindow):
     def _on_disconnected(self, reason):
         self.controls.set_connected(False)
         self.sweep.set_connected(False)
+        self.flyback.set_connected(False)
         self.sorting.set_connected(False)
         self.conn_badge.setText("DISCONNECTED")
         self.conn_badge.set_kind("bad" if reason else "")
@@ -195,6 +203,7 @@ class MainWindow(QMainWindow):
         self.controls.apply_settings(st)
         self.measure.apply_settings(st)
         self.sweep.apply_settings(st)
+        self.flyback.apply_settings(st)
         self.sorting.apply_settings(st)
 
     def _on_reading(self, r):
@@ -205,7 +214,7 @@ class MainWindow(QMainWindow):
         self.tools.on_reading(r)
 
     def _on_job_error(self, tag, msg):
-        if tag != "sweep":
+        if tag not in ("sweep", "flyback"):
             self._msg(f"Command failed: {msg}", 6000)
 
     def _on_job_done(self, tag, result):

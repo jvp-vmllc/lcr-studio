@@ -13,6 +13,8 @@ from PySide6.QtWidgets import QApplication
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from lcr_studio.app import MainWindow, app_icon, load_fonts  # noqa: E402
+from lcr_studio.flyback import FlybackProfile, Winding  # noqa: E402
+from lcr_studio.report import render_image  # noqa: E402
 from lcr_studio.theme import theme  # noqa: E402
 
 OUT = ROOT / "docs" / "images"
@@ -67,6 +69,26 @@ shot("measure", w.measure)
 theme.apply("light")
 shot("measure-light", w.measure)
 theme.apply("dark")
+
+# Flyback — full guided test on the simulated transformer
+fb = w.flyback
+fb.set_profile(FlybackProfile(
+    part_number="FBT-EE25-12V", description="65 W flyback, 12 V / 5.4 A",
+    primary=Winding("Primary", "1-3", 0.5),
+    secondaries=[Winding("12 V out", "7-9", 0.02), Winding("Aux", "4-5", 0.5)],
+    lp_nom=620e-6, lp_tol=10, llk_max=15e-6, llk_pct_max=2.5))
+fb.serial.setText("SN-000123")
+fb.operator.setText("QA bench 2")
+w.tabs.setCurrentWidget(fb)
+for i in range(len(fb.steps)):
+    fb.step_table.setCurrentCell(i, 0)
+    fb.run_selected()
+    wait_until(lambda: fb.running_key is None, 180)
+fb.step_table.setCurrentCell(1, 0)
+shot("flyback", fb)
+render_image(fb.profile(), fb.results, fb._meta(), dpi=110).save(str(OUT / "flyback-report.png"))
+print("saved flyback-report", flush=True)
+meter(lambda m: m.set_fixture(None))          # back to the demo capacitor
 
 # Sweep — series vs parallel model, D and ESR captured
 w.tabs.setCurrentWidget(w.sweep)
