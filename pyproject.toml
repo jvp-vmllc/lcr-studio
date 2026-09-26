@@ -8,7 +8,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 keywords = ["lcr-meter", "uni-t", "ut622e", "scpi", "test-equipment", "pyside6"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: X11 Applications :: Qt",
     "Intended Audience :: Science/Research",
     "Operating System :: Microsoft :: Windows",
