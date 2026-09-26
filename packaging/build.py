@@ -79,6 +79,7 @@ def build_deb() -> Path:
     doc = root / "usr" / "share" / "doc" / "lcr-studio"
     doc.mkdir(parents=True)
     shutil.copy(ROOT / "lcr_studio" / "assets" / "fonts" / "OFL.txt", doc / "Barlow-OFL.txt")
+    shutil.copy(ROOT / "LICENSE", doc / "copyright")
 
     size_kb = sum(f.stat().st_size for f in root.rglob("*") if f.is_file() and not f.is_symlink()) // 1024
     debian = root / "DEBIAN"
@@ -91,7 +92,7 @@ Architecture: {arch}
 Installed-Size: {size_kb}
 Depends: {DEB_DEPENDS}
 Maintainer: {os.environ.get("DEB_MAINTAINER", "LCR Studio <lcr-studio@users.noreply.github.com>")}
-Homepage: {os.environ.get("DEB_HOMEPAGE", "https://github.com")}
+Homepage: {os.environ.get("DEB_HOMEPAGE", "https://github.com/jvrpapa05/lcr-studio")}
 Description: Desktop application for the UNI-T UT622E LCR meter
  Live readout with derived equivalent-circuit parameters, frequency/level
  sweeps, component sorting and matching, data logging with Excel export,

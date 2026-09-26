@@ -4,6 +4,8 @@ dynamic = ["version"]
 description = "Desktop application for the UNI-T UT622E LCR meter: live readout, sweeps, sorting, matching, logging and engineering tools."
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 keywords = ["lcr-meter", "uni-t", "ut622e", "scpi", "test-equipment", "pyside6"]
 classifiers = [
     "Development Status :: 4 - Beta",

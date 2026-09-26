@@ -13,6 +13,9 @@ data logging and engineering calculators, all over the meter's USB cable.
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![Qt](https://img.shields.io/badge/UI-PySide6%20%2F%20Qt%206-41CD52?logo=qt&logoColor=white)
 ![uv](https://img.shields.io/badge/deps-uv%20locked-DE5FE9)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/jvrpapa05/lcr-studio)](https://github.com/jvrpapa05/lcr-studio/releases/latest)
+[![CI](https://github.com/jvrpapa05/lcr-studio/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/jvrpapa05/lcr-studio/actions/workflows/ci.yml)
 
 <img src="docs/images/measure.png" alt="LCR Studio measuring a 4.7 µF capacitor" width="100%">
 
@@ -151,8 +154,8 @@ and system settings (backlight, auto power-off). The app shows whether open/shor
 Dependencies are locked with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-git clone <this repository>
-cd <repository folder>
+git clone https://github.com/jvrpapa05/lcr-studio.git
+cd lcr-studio
 uv sync              # creates .venv from uv.lock
 uv run lcr-studio    # start the app
 uv run pytest        # run the test suite (headless)
@@ -200,6 +203,10 @@ scripts/           screenshot generator
 tests/             pytest suite (math, simulator, headless UI)
 PROTOCOL.md        UT622E remote command reference
 ```
+
+## License
+
+LCR Studio is released under the [MIT License](LICENSE).
 
 ## Credits
 
