@@ -1,0 +1,10 @@
+* text=auto
+*.py text eol=lf
+*.rules text eol=lf
+*.desktop text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.lock text eol=lf
+*.png binary
+*.ico binary
+*.ttf binary

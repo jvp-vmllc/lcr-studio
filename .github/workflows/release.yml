@@ -1,0 +1,113 @@
+name: Release
+
+# Every push to main builds the Windows .exe and Linux .deb.
+# A GitHub release (tag v<version>) is published when lcr_studio/__init__.py carries a
+# version that has not been released yet; otherwise the packages are kept as workflow artifacts.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Package (${{ matrix.target }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-exe
+          - os: ubuntu-22.04        # oldest supported glibc -> .deb runs on Ubuntu 22.04+ / Debian 12+
+            target: linux-deb
+    env:
+      UV_PYTHON_PREFERENCE: only-system
+      DEB_HOMEPAGE: ${{ github.server_url }}/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Qt runtime libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libdbus-1-3 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+            libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
+      - name: Build
+        run: |
+          uv sync --locked --group build
+          uv run --group build python packaging/build.py
+      - name: Smoke test packaged app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $exe = Get-ChildItem dist/LCR-Studio-*-windows-x64.exe | Select-Object -First 1
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList "--smoke-test" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "smoke test failed with exit code $($p.ExitCode)" }
+      - name: Install and smoke test .deb (Linux)
+        if: runner.os == 'Linux'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          sudo apt-get install -y ./dist/lcr-studio_*.deb
+          lcr-studio --smoke-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            dist/*.exe
+            dist/*.deb
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read version
+        id: v
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' lcr_studio/__init__.py)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::v$version is already released — bump __version__ in lcr_studio/__init__.py to publish a new release. Packages are attached to this run as artifacts."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        if: steps.v.outputs.exists == 'false'
+        with:
+          path: packages
+          merge-multiple: true
+      - name: Create release v${{ steps.v.outputs.version }}
+        if: steps.v.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.v.outputs.version }}" packages/* \
+            --target "$GITHUB_SHA" \
+            --title "LCR Studio v${{ steps.v.outputs.version }}" \
+            --generate-notes

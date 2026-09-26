@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=LCR Studio
+GenericName=LCR Meter
+Comment=Control and log the UNI-T UT622E LCR meter
+Exec=lcr-studio
+Icon=lcr-studio
+Terminal=false
+Categories=Science;Electronics;Engineering;
+Keywords=LCR;meter;capacitance;inductance;ESR;UNI-T;UT622E;
+StartupWMClass=lcr-studio

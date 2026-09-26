@@ -1,0 +1,49 @@
+[project]
+name = "lcr-studio"
+dynamic = ["version"]
+description = "Desktop application for the UNI-T UT622E LCR meter: live readout, sweeps, sorting, matching, logging and engineering tools."
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["lcr-meter", "uni-t", "ut622e", "scpi", "test-equipment", "pyside6"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Science/Research",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+dependencies = [
+    "PySide6>=6.6",
+    "pyqtgraph>=0.13",
+    "pyserial>=3.5",
+    "numpy>=1.26",
+    "openpyxl>=3.1",
+]
+
+[project.gui-scripts]
+lcr-studio = "lcr_studio.app:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+build = [
+    "pillow>=12.3.0",
+    "pyinstaller>=6.10",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "lcr_studio/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lcr_studio"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
