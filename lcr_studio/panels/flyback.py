@@ -641,9 +641,15 @@ class FlybackPanel(QWidget):
                     plot_series(plot, [r["hz"] for r in lv_rows], [r["L"] for r in lv_rows], LEVEL_COLORS[lv],
                                 v_label(lv), log_x=True, symbol_size=6, reveal=rv)
             spec_pt = next((r for r in res["rows"] if r["freq"] == freq and r["level"] == level), None) if res else None
-            if spec_pt is not None and spec_pt is not newest:       # ring the point the limit is checked at
-                plot.plot([spec_pt["hz"]], [spec_pt["L"]], pen=None, symbol="o", symbolSize=15, symbolBrush=None,
-                          symbolPen=pg.mkPen(theme.c["text"], width=2))
+            if spec_pt is not None and spec_pt is not newest:       # cross-hair on the point the limit is checked at
+                c = theme.c
+                pen = pg.mkPen(c["text"], width=1, style=Qt.DashLine)
+                opts = dict(color=c["text"], fill=pg.mkBrush(c["surface"] + "dd"), movable=False)
+                item.addItem(pg.InfiniteLine(pos=math.log10(spec_pt["hz"]), angle=90, pen=pen,
+                                             label=f"{hz_label(freq)}, {v_label(level)}",
+                                             labelOpts=dict(opts, position=0.93)))
+                item.addItem(pg.InfiniteLine(pos=math.log10(spec_pt["L"]) if logy else spec_pt["L"], angle=0, pen=pen,
+                                             label=fmt(spec_pt["L"], "H", 4), labelOpts=dict(opts, position=0.06)))
             if ys or limits:                     # fit the curves; a limit joins the view once it is near
                 tr = math.log10 if logy else (lambda v: v)
                 lims = [tr(v) for v in limits if v > 0]

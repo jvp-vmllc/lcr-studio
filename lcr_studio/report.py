@@ -103,7 +103,8 @@ def tick_label(v, step, unit):
 def chart(cv: Canvas, x, y, w, h, title, series, unit, xs_kind="freq", mark=None):
     """series: [(label, color, [(x, y), ...])]. xs_kind 'freq' uses a log axis, 'level' a category axis.
 
-    The y axis turns logarithmic when the data spans more than a decade. mark=(x, y) rings one point.
+    The y axis turns logarithmic when the data spans more than a decade. mark=(x, y, x label, y label) draws a
+    dashed cross-hair through one point with its labels.
     """
     cv.text(x, y, w, 12, title, 8.2, True)
     px, py, pw, ph = x + 44, y + 16, w - 48, h - 36
@@ -155,11 +156,17 @@ def chart(cv: Canvas, x, y, w, h, title, series, unit, xs_kind="freq", mark=None
         cv.line(lx - tw, y + 6, lx - tw + 7, y + 6, color, 1.8)
         cv.text(lx - tw + 9, y + 1, tw, 10, label, 6.3, color=MUTED)
         lx -= tw + 5
-    if mark is not None and mark[1] is not None and mark[1] > 0:
+    if mark is not None and mark[1] is not None and mark[1] > 0:     # cross-hair on the test-condition point
         mx, my = xmap(mark[0]), ymap(mark[1])
-        cv.p.setPen(QPen(QColor(INK), 1.2 * cv.s))
-        cv.p.setBrush(Qt.NoBrush)
-        cv.p.drawEllipse(QPointF(mx * cv.s, my * cv.s), 4.5 * cv.s, 4.5 * cv.s)
+        cv.line(mx, py, mx, py + ph, INK, 0.7, Qt.DashLine)
+        cv.line(px, my, px + pw, my, INK, 0.7, Qt.DashLine)
+        right = mx > px + pw * 0.6
+        lx_ = mx - 65 if right else mx + 3
+        cv.box(lx_, py + 3, 62, 9, fill="#ddffffff")
+        cv.text(lx_, py + 3, 62, 9, mark[2], 6, True, INK, (Qt.AlignRight if right else Qt.AlignLeft) | Qt.AlignVCenter)
+        ly_ = my + 2 if my < py + 13 else my - 11
+        cv.box(px + 3, ly_, 46, 9, fill="#ddffffff")
+        cv.text(px + 3, ly_, 46, 9, mark[3], 6, True, INK, Qt.AlignLeft | Qt.AlignVCenter)
 
 
 def loss_figures(row, equ):
@@ -287,7 +294,7 @@ def paint_report(painter: QPainter, dpi: float, profile: FlybackProfile, results
 
     def spec_mark(res, freq, level):
         pt = point(res, freq, level)
-        return (pt["hz"], pt["L"]) if pt else None
+        return (pt["hz"], pt["L"], f"{hz_label(freq)}, {v_label(level)}", fmt(pt["L"], "H", 4)) if pt else None
 
     chart(cv, x0, y, chw, chh, "Primary inductance Lp", per_level(lp_res), "H",
           mark=spec_mark(lp_res, profile.lp_freq, profile.lp_level))
