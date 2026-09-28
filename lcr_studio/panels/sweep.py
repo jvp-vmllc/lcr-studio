@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import math
 import statistics
+import time
 
 import pyqtgraph as pg
 import pyqtgraph.exporters  # noqa: F401  (registers ImageExporter)
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QGridLayout, QHBoxLayout,
                                QLineEdit, QListWidget, QListWidgetItem, QProgressBar, QPushButton,
                                QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
@@ -14,7 +15,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QGridLayout, Q
 from ..engmath import fmt
 from ..theme import SERIES, theme
 from ..ut622e import FREQ_HZ, FREQUENCIES, LEVELS, PRIMARY_UNIT, SECONDARY_LABEL, SECONDARY_UNIT, MeterError
-from ..widgets import Card, export_table, field_label, make_plot, muted
+from ..widgets import Card, export_table, field_label, make_plot, muted, plot_series, reveal_fraction
 
 SWEEP_SECONDARIES = [("D", "D"), ("Q", "Q"), ("ESR", "ESR"), ("X", "X"), ("DEG", "θ°")]
 PERIOD = {"SLOW": 0.5, "MED": 0.2, "FAST": 0.05}
@@ -81,6 +82,10 @@ class SweepPanel(QWidget):
         self.running = None
         self.speed = "MED"
         self.connected = False
+        self._anim_t0 = None
+        self._anim = QTimer(self)             # redraws while the newest point grows in
+        self._anim.setInterval(16)
+        self._anim.timeout.connect(self._redraw)
 
         root = QHBoxLayout(self)
         root.setContentsMargins(6, 12, 12, 12)
@@ -263,6 +268,8 @@ class SweepPanel(QWidget):
     def on_partial(self, tag, row):
         if tag == "sweep" and self.running is not None:
             self.running["rows"].append(row)
+            self._anim_t0 = time.monotonic()
+            self._anim.start()
             self._redraw()
 
     def on_done(self, tag, result):
@@ -324,11 +331,18 @@ class SweepPanel(QWidget):
     def _visible_runs(self):
         runs = [r for i, r in enumerate(self.runs) if self.run_list.item(i).checkState() == Qt.Checked]
         if self.running and self.running["rows"]:
-            live = dict(self.running, ptype=self.worker.state.get("primary"), color=theme.c["text"], name=self.running["name"] + " (running)")
+            live = dict(self.running, ptype=self.worker.state.get("primary"), color=theme.c["text"],
+                        name=self.running["name"] + " (running)", live=True)
             runs.append(live)
         return runs
 
     def _redraw(self):
+        reveal = 1.0
+        if self._anim_t0 is not None:
+            reveal, done = reveal_fraction(self._anim_t0)
+            if done:
+                self._anim_t0 = None
+                self._anim.stop()
         self.pplot.clear()
         self.splot.clear()
         self.legend.clear()
@@ -351,12 +365,13 @@ class SweepPanel(QWidget):
                 rows = [r for r in run["rows"] if r["level"] == lv]
                 x = [r["hz"] for r in rows]
                 name = run["name"] + (f" @ {lv}" if len(levels) > 1 else "")
-                pen = pg.mkPen(run["color"], width=2, style=styles[li % 3])
-                self.pplot.plot(x, [r["p"] for r in rows], pen=pen, symbol="o", symbolSize=7,
-                                symbolBrush=run["color"], symbolPen=None, name=name)
+                style = styles[li % 3]
+                rv = reveal if run.get("live") and rows[-1] is run["rows"][-1] else 1.0
+                plot_series(self.pplot, x, [r["p"] for r in rows], run["color"], name, log_x=True, style=style,
+                            reveal=rv)
                 if sec and all(sec in r for r in rows):
-                    self.splot.plot(x, [r[sec] for r in rows], pen=pen, symbol="o", symbolSize=7,
-                                    symbolBrush=run["color"], symbolPen=None)
+                    plot_series(self.splot, x, [r[sec] for r in rows], run["color"], log_x=True, style=style,
+                                reveal=rv)
 
     def _run_table(self, run):
         secs = run["secs"]

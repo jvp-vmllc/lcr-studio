@@ -124,16 +124,11 @@ class ControlPanel(QScrollArea):
 
         # --- front panel
         f = Card("Meter")
-        row = QHBoxLayout()
-        lock = QPushButton("Lock keys")
-        lock.setToolTip("Lock the meter's keypad (hold its power key 1 s to unlock)")
-        lock.clicked.connect(lambda: self._set(lambda mt: mt.lock_keys(), refresh=False))
-        unlock = QPushButton("Unlock keys")
-        unlock.setToolTip("Unlock the meter's keypad")
-        unlock.clicked.connect(lambda: self._set(lambda mt: mt.unlock_keys(), refresh=False))
-        row.addWidget(lock)
-        row.addWidget(unlock)
-        f.body.addLayout(row)
+        self.lock_btn = QPushButton("Lock meter keys")
+        self.lock_btn.setCheckable(True)
+        self.lock_btn.setToolTip("Lock or unlock the meter's keypad (holding its power key 1 s also unlocks)")
+        self.lock_btn.toggled.connect(self._toggle_lock)
+        f.body.addWidget(self.lock_btn)
         reset = QPushButton("Reset meter settings")
         reset.setObjectName("Danger")
         reset.setToolTip("Reset the meter's measurement settings")
@@ -149,6 +144,10 @@ class ControlPanel(QScrollArea):
     # ------------------------------------------------------------------
     def _set(self, fn, refresh=True):
         self.worker.call(fn, tag="set", refresh=refresh)
+
+    def _toggle_lock(self, on):
+        self.lock_btn.setText("Unlock meter keys" if on else "Lock meter keys")
+        self._set(lambda mt: mt.lock_keys() if on else mt.unlock_keys(), refresh=False)
 
     def _reset(self):
         if ask(self, "Reset meter", "Reset the meter's measurement settings?\n"
@@ -200,6 +199,10 @@ class ControlPanel(QScrollArea):
             self.idn.setText("Not connected")
             self.open_badge.set_kind("")
             self.short_badge.set_kind("")
+            self.lock_btn.blockSignals(True)        # a fresh connection starts unlocked; send nothing
+            self.lock_btn.setChecked(False)
+            self.lock_btn.blockSignals(False)
+            self.lock_btn.setText("Lock meter keys")
 
     def apply_settings(self, st: dict):
         self.primary.set_value(st.get("primary"))

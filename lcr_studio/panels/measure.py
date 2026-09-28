@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QHBoxLayout, Q
 from ..engmath import eng_parts, fmt, params_from_z, z_from_measurement
 from ..theme import SERIES, theme
 from ..ut622e import FREQ_HZ, RANGES, SECONDARY_LABEL, Reading
-from ..widgets import Badge, Card, field_label, make_plot, muted
+from ..widgets import Badge, Card, RollAxis, field_label, make_plot, muted
 
 
 def fmt_secondary(stype, v):
@@ -59,6 +59,10 @@ class MeasurePanel(QWidget):
         self.t, self.p, self.s = [], [], []
         self._dirty = False
         self._rate_times = []
+        self._follow = True          # False after a manual zoom/pan, until Autoscale
+        self._yr = {}                # current (eased) y ranges per plot
+        self._target = {}            # y ranges the visible data asks for
+        self._frame = 0
 
         root = QVBoxLayout(self)
         root.setContentsMargins(6, 12, 12, 12)
@@ -79,7 +83,7 @@ class MeasurePanel(QWidget):
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._redraw)
-        self._timer.start(100)
+        self._timer.start(33)
         theme.changed.connect(lambda c: self._restyle_curves())
         self._restyle_curves()
 
@@ -193,8 +197,7 @@ class MeasurePanel(QWidget):
         self.show_mean.setChecked(True)
         self.show_mean.toggled.connect(lambda: self._mark())
         autoscale = QPushButton("Autoscale")
-        autoscale.clicked.connect(lambda: (self.pplot.enableAutoRange(), self.splot.enableAutoRange(),
-                                           self.hplot.enableAutoRange()))
+        autoscale.clicked.connect(self._autoscale)
         card.header.addWidget(field_label("Window"))
         card.header.addWidget(self.window)
         card.header.addWidget(self.show_sec)
@@ -204,15 +207,22 @@ class MeasurePanel(QWidget):
         body = QHBoxLayout()
         charts = QVBoxLayout()
         charts.setSpacing(4)
-        self.pplot = make_plot("Primary", "", "Time", "s")
-        self.splot = make_plot("Secondary", "", "Time", "s")
+        self.xaxes = [RollAxis(), RollAxis()]          # tick labels count back from the right edge
+        self.pplot = make_plot("Primary", "", "Time", "s", bottom_axis=self.xaxes[0])
+        self.splot = make_plot("Secondary", "", "Time", "s", bottom_axis=self.xaxes[1])
         self.splot.setXLink(self.pplot)
+        for plot in (self.pplot, self.splot):      # a manual zoom or pan stops the chart from following
+            plot.getViewBox().sigRangeChangedManually.connect(lambda *_: setattr(self, "_follow", False))
         self.pcurve = self.pplot.plot([], [])
         self.scurve = self.splot.plot([], [])
         self.mean_line = pg.InfiniteLine(angle=0, movable=False)
         self.ref_line = pg.InfiniteLine(angle=0, movable=False)
         self.pplot.addItem(self.mean_line)
         self.pplot.addItem(self.ref_line)
+        self.tol_band = pg.LinearRegionItem(orientation="horizontal", movable=False)   # meter tolerance window
+        self.tol_band.setZValue(-10)
+        self.tol_band.hide()
+        self.pplot.addItem(self.tol_band)
         charts.addWidget(self.pplot, 3)
         charts.addWidget(self.splot, 2)
         body.addLayout(charts, 1)
@@ -246,6 +256,9 @@ class MeasurePanel(QWidget):
         self.mean_line.setPen(pg.mkPen(c["muted"], width=1, style=Qt.DashLine))
         self.ref_line.setPen(pg.mkPen(c["warn"], width=1, style=Qt.DotLine))
         self.hist.setOpts(brush=pg.mkBrush(SERIES[0] + "b0"), pen=pg.mkPen(None))
+        self.tol_band.setBrush(pg.mkBrush(c["good"] + "22"))
+        for line in self.tol_band.lines:
+            line.setPen(pg.mkPen(c["good"], width=1, style=Qt.DashLine))
 
     # ----------------------------------------------------------- updates --
     def apply_settings(self, st: dict):
@@ -266,6 +279,13 @@ class MeasurePanel(QWidget):
         man = st.get("trigger") == "MAN"
         self.badges["trig"].setText("SINGLE" if man else "CONT")
         self.badges["trig"].set_kind("accent" if man else "")
+        nom, tol = st.get("comp_nominal"), st.get("comp_tol")
+        if st.get("comp") and nom and tol is not None:      # tolerance mode on the meter: show its window
+            self.tol_band.setRegion((nom * (1 - tol / 100), nom * (1 + tol / 100)))
+            self.tol_band.show()
+        else:
+            self.tol_band.hide()
+        self._mark()
 
     def add_reading(self, r: Reading):
         self.last = r
@@ -350,29 +370,56 @@ class MeasurePanel(QWidget):
     def reset_trend(self):
         self.t, self.p, self.s = [], [], []
         self._t0 = None
+        self._yr, self._target = {}, {}
         self._mark()
 
     def _mark(self):
         self._dirty = True
 
+    def _autoscale(self):
+        self._follow = True
+        self._yr = {}
+        self.hplot.enableAutoRange()
+        self._mark()
+
     def _redraw(self):
+        """Display timer (~30 fps): rebuild the data when it changed, then keep the strip chart moving."""
         n_rate = len(self._rate_times)
         rate = (n_rate - 1) / (self._rate_times[-1] - self._rate_times[0]) if n_rate > 2 else 0.0
         self.rate_label.setText(f"{rate:.1f} readings/s" if rate else "")
-        if not self._dirty:
-            return
-        self._dirty = False
+        win = self.window.currentData()
+        now = time.time() - self._t0 if self._t0 is not None else 0.0
+        if self._dirty:
+            self._dirty = False
+            self._rebuild(win, now, rate)
+        self._frame += 1
+        if not self._follow or not self.t or (len(self.t) > 20_000 and self._frame % 4):
+            return                               # very long histories repaint at a quarter of the rate
+        for ax in self.xaxes:
+            ax.now = now if win else 0.0
+        if win:                                  # roll mode: the newest point rides the right edge
+            self.pplot.setXRange(now - win, now, padding=0)
+        else:
+            self.pplot.setXRange(0.0, max(now, 1.0), padding=0.02)
+        self._ease_y(self.pplot, "p")
+        if self.show_sec.isChecked():
+            self._ease_y(self.splot, "s")
+
+    def _rebuild(self, win, now, rate):
         t = np.asarray(self.t)
         p = np.asarray(self.p)
         s = np.asarray(self.s)
-        win = self.window.currentData()
         if win and len(t):
-            sel = t >= t[-1] - win
+            sel = t >= now - win - 1.0           # one extra second so the trace runs off the left edge
             t, p, s = t[sel], p[sel], s[sel]
-        self.pcurve.setData(t, p, connect="finite")
-        p = p[np.isfinite(p)]
+        aa = len(t) <= 20_000                    # antialiasing gets slow on very long histories
+        self.pcurve.setData(t, p, connect="finite", antialias=aa)
         if self.show_sec.isChecked():
-            self.scurve.setData(t, s, connect="finite")
+            self.scurve.setData(t, s, connect="finite", antialias=aa)
+        p = p[np.isfinite(p)]
+        s = s[np.isfinite(s)]
+        self._target["p"] = (float(p.min()), float(p.max())) if len(p) else None
+        self._target["s"] = (float(s.min()), float(s.max())) if len(s) else None
         unit = self.last.punit if self.last else ""
         self.stats["Rate"].setText(f"{rate:.1f}/s")
         self.stats["N"].setText(str(len(p)))
@@ -400,3 +447,27 @@ class MeasurePanel(QWidget):
         self.ref_line.setVisible(self.ref is not None)
         if self.ref is not None:
             self.ref_line.setPos(self.ref)
+
+    def _ease_y(self, plot, key):
+        """Move the y range a step toward the visible data's extent instead of snapping to it."""
+        tgt = self._target.get(key)
+        if tgt is None:
+            return
+        lo, hi = tgt
+        if key == "p" and self.ref is not None:      # keep the reference line in view
+            lo, hi = min(lo, self.ref), max(hi, self.ref)
+        if key == "p" and self.tol_band.isVisible():  # and the meter's tolerance window
+            blo, bhi = self.tol_band.getRegion()
+            lo, hi = min(lo, blo), max(hi, bhi)
+        if hi <= lo:
+            pad = abs(lo) * 1e-4 or 1e-12
+            lo, hi = lo - pad, hi + pad
+        cur = self._yr.get(key)
+        if cur is None or not all(math.isfinite(v) for v in cur):
+            cur = (lo, hi)
+        else:
+            cur = (cur[0] + (lo - cur[0]) * 0.2, cur[1] + (hi - cur[1]) * 0.2)   # settles in ~0.4 s
+            if abs(cur[0] - lo) < (hi - lo) * 1e-3 and abs(cur[1] - hi) < (hi - lo) * 1e-3:
+                cur = (lo, hi)
+        self._yr[key] = cur
+        plot.setYRange(cur[0], cur[1], padding=0.08)

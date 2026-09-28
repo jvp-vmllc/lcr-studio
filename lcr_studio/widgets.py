@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import csv
+import time
 
+import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QButtonGroup, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
@@ -10,6 +12,10 @@ from PySide6.QtWidgets import (QButtonGroup, QFileDialog, QFrame, QGridLayout, Q
 
 from .engmath import fmt, parse_eng
 from .theme import repolish, style_plot, theme
+
+pg.setConfigOptions(antialias=True)
+
+REVEAL_S = 0.4      # seconds a newly measured chart point takes to grow in
 
 
 class Card(QFrame):
@@ -129,9 +135,23 @@ class EngEdit(QLineEdit):
         self.setText("" if v is None else fmt(v, self.unit, digits))
 
 
+class RollAxis(pg.AxisItem):
+    """Bottom axis of a rolling strip chart: ticks sit at round numbers of seconds before `now` (0 = right edge)."""
+
+    def __init__(self):
+        super().__init__(orientation="bottom")
+        self.now = 0.0
+
+    def tickSpacing(self, minVal, maxVal, size):
+        return [(sp, (self.now % sp) if sp else off) for sp, off in super().tickSpacing(minVal, maxVal, size)]
+
+    def tickStrings(self, values, scale, spacing):
+        return [f"{round((v - self.now) * scale, 6) + 0.0:g}" for v in values]
+
+
 def make_plot(title_left: str = "", units_left: str = "", title_bottom: str = "", units_bottom: str = "",
-              log_x: bool = False) -> pg.PlotWidget:
-    w = pg.PlotWidget()
+              log_x: bool = False, bottom_axis: pg.AxisItem | None = None) -> pg.PlotWidget:
+    w = pg.PlotWidget(axisItems={"bottom": bottom_axis} if bottom_axis else None)
     p = w.getPlotItem()
     p.setLabel("left", title_left, units=units_left)
     p.setLabel("bottom", title_bottom, units=units_bottom)
@@ -147,6 +167,69 @@ def make_plot(title_left: str = "", units_left: str = "", title_bottom: str = ""
     theme.changed.connect(restyle)
     w.setMinimumHeight(140)
     return w
+
+
+def smooth_curve(x, y, log_x: bool = False, n: int = 160):
+    """Dense monotone-cubic curve through (x, y): smooth between points, never overshooting them."""
+    xa = np.asarray(x, dtype=float)
+    ya = np.asarray(y, dtype=float)
+    if len(xa) < 3:
+        return xa, ya
+    order = np.argsort(xa)
+    xa, ya = xa[order], ya[order]
+    xi = np.log10(xa) if log_x else xa
+    h = np.diff(xi)
+    if np.any(h <= 0) or not np.all(np.isfinite(ya)):
+        return xa, ya
+    d = np.diff(ya) / h
+    m = np.empty_like(ya)
+    m[0], m[-1] = d[0], d[-1]
+    for i in range(1, len(xa) - 1):                 # Fritsch-Butland slopes keep the curve monotone
+        if d[i - 1] * d[i] <= 0:
+            m[i] = 0.0
+        else:
+            w1, w2 = 2 * h[i] + h[i - 1], h[i] + 2 * h[i - 1]
+            m[i] = (w1 + w2) / (w1 / d[i - 1] + w2 / d[i])
+    xs = np.unique(np.concatenate([np.linspace(xi[0], xi[-1], n), xi]))   # knots included: markers sit on the line
+    k = np.clip(np.searchsorted(xi, xs, side="right") - 1, 0, len(xi) - 2)
+    t = (xs - xi[k]) / h[k]
+    t2, t3 = t * t, t * t * t
+    ys = ((2 * t3 - 3 * t2 + 1) * ya[k] + (t3 - 2 * t2 + t) * h[k] * m[k]
+          + (-2 * t3 + 3 * t2) * ya[k + 1] + (t3 - t2) * h[k] * m[k + 1])
+    return (10 ** xs if log_x else xs), ys
+
+
+def reveal_fraction(t0: float):
+    """Ease-out progress of a grow-in animation started at monotonic time t0: (0..1, finished)."""
+    f = min(1.0, (time.monotonic() - t0) / REVEAL_S)
+    return 1 - (1 - f) ** 3, f >= 1.0
+
+
+def plot_series(plot, x, y, color, name=None, log_x: bool = False, style=Qt.SolidLine, width: int = 2,
+                symbol_size: int = 7, reveal: float = 1.0):
+    """Smooth line through the points plus a marker on every measured point. Returns the line item.
+
+    reveal < 1 draws the newest point only part of the way from the previous one (grow-in animation).
+    """
+    x, y = list(x), list(y)
+    tail = None
+    if reveal < 1.0 and len(x) >= 2:
+        if log_x:
+            x[-1] = 10 ** (np.log10(x[-2]) + (np.log10(x[-1]) - np.log10(x[-2])) * reveal)
+        else:
+            x[-1] = x[-2] + (x[-1] - x[-2]) * reveal
+        y[-1] = y[-2] + (y[-1] - y[-2]) * reveal
+        tail = (x.pop(), y.pop())
+    elif reveal < 1.0 and len(x) == 1:
+        tail = (x.pop(), y.pop())                 # first point of a series just grows in place
+    xs, ys = smooth_curve(x + ([tail[0]] if tail else []), y + ([tail[1]] if tail else []), log_x)
+    line = plot.plot(xs, ys, pen=pg.mkPen(color, width=width, style=style), name=name)
+    if x:
+        plot.plot(x, y, pen=None, symbol="o", symbolSize=symbol_size, symbolBrush=color, symbolPen=None)
+    if tail:
+        plot.plot([tail[0]], [tail[1]], pen=None, symbol="o", symbolSize=max(1.0, symbol_size * reveal),
+                  symbolBrush=color, symbolPen=None)
+    return line
 
 
 def ask(parent, title: str, text: str) -> bool:

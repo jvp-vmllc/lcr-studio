@@ -4,10 +4,11 @@ from __future__ import annotations
 import json
 import math
 import platform
+import time
 from datetime import datetime
 
 import pyqtgraph as pg
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QSettings, Qt, QTimer
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QGridLayout, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea,
@@ -19,7 +20,7 @@ from ..flyback import FlybackProfile, build_steps, evaluate, hz_label, run_step,
 from ..report import LEVEL_COLORS, default_meta, export_pdf, render_image
 from ..theme import theme
 from ..ut622e import FREQ_HZ, FREQUENCIES, LEVELS
-from ..widgets import Badge, Card, EngEdit, Segmented, field_label, make_plot, muted
+from ..widgets import Badge, Card, EngEdit, Segmented, field_label, make_plot, muted, plot_series, reveal_fraction
 
 STATUS_KIND = {"done": "good", "running": "accent", "aborted": "warn", "error": "bad", "pending": ""}
 
@@ -67,6 +68,10 @@ class FlybackPanel(QWidget):
         self.connected = False
         self.meta = {"meter": "—", "speed": "?", "correction": "—"}
         self._loading = False
+        self._anim_t0 = None
+        self._anim = QTimer(self)             # redraws while the newest point grows in
+        self._anim.setInterval(16)
+        self._anim.timeout.connect(self._refresh_results)
 
         root = QHBoxLayout(self)
         root.setContentsMargins(6, 12, 12, 12)
@@ -264,6 +269,13 @@ class FlybackPanel(QWidget):
             plot.getPlotItem().setLabel("bottom", "Frequency (Hz)")
             plot.getPlotItem().setXRange(math.log10(90), math.log10(110e3), padding=0.02)
             plot.getPlotItem().addLegend(offset=(8, 4), colCount=3)
+        # specification limits: Lp nominal ± tolerance as a band, Llk max as a line
+        self.lp_band = pg.LinearRegionItem(orientation="horizontal", movable=False)
+        self.lp_band.setZValue(-10)
+        self.lp_nom_line = pg.InfiniteLine(angle=0, movable=False, label="nominal", labelOpts={"position": 0.8})
+        self.llk_line = pg.InfiniteLine(angle=0, movable=False, label="Llk max", labelOpts={"position": 0.8})
+        self._restyle_limits(theme.c)
+        theme.changed.connect(self._restyle_limits)
         charts.addWidget(self.lp_plot)
         charts.addWidget(self.llk_plot)
         body.addLayout(charts, 4)
@@ -425,6 +437,8 @@ class FlybackPanel(QWidget):
     def on_partial(self, tag, data):
         if tag == self.TAG and self.running_key and data.get("step") == self.running_key:
             self.results[self.running_key]["rows"].append(data["row"])
+            self._anim_t0 = time.monotonic()
+            self._anim.start()
             self._refresh_results()
 
     def on_done(self, tag, result):
@@ -463,24 +477,67 @@ class FlybackPanel(QWidget):
         self.step_pick.setCurrentIndex(0)
 
     # =========================================================== results ==
+    def _restyle_limits(self, c):
+        self.lp_band.setBrush(pg.mkBrush(c["good"] + "22"))
+        for line in self.lp_band.lines:
+            line.setPen(pg.mkPen(c["good"], width=1, style=Qt.DashLine))
+        self.lp_nom_line.setPen(pg.mkPen(c["muted"], width=1, style=Qt.DotLine))
+        self.lp_nom_line.label.setColor(c["muted"])
+        self.llk_line.setPen(pg.mkPen(c["bad"], width=1, style=Qt.DashLine))
+        self.llk_line.label.setColor(c["bad"])
+
+    def _place_limits(self, item, key, p):
+        """Re-add the limit band / line after a clear; returns the limit values shown, for the y range."""
+        if key == "lp":
+            item.addItem(self.lp_band)
+            item.addItem(self.lp_nom_line)
+            on = bool(p.lp_nom)
+            self.lp_band.setVisible(on)
+            self.lp_nom_line.setVisible(on)
+            if not on:
+                return []
+            lo, hi = p.lp_nom * (1 - p.lp_tol / 100), p.lp_nom * (1 + p.lp_tol / 100)
+            self.lp_band.setRegion((lo, hi))
+            self.lp_nom_line.setPos(p.lp_nom)
+            return [lo, hi]
+        item.addItem(self.llk_line)
+        self.llk_line.setVisible(bool(p.llk_max))
+        if not p.llk_max:
+            return []
+        self.llk_line.setPos(p.llk_max)
+        return [p.llk_max]
+
     def _refresh_results(self):
         if not hasattr(self, "summary"):
             return
+        reveal = 1.0
+        if self._anim_t0 is not None:
+            reveal, done = reveal_fraction(self._anim_t0)
+            if done:
+                self._anim_t0 = None
+                self._anim.stop()
+        live = self.results.get(self.running_key, {}).get("rows") if self.running_key else None
+        newest = live[-1] if live else None
+        p = self.profile()
         for plot, key in ((self.lp_plot, "lp"), (self.llk_plot, "llk")):
             item = plot.getPlotItem()
             item.clear()
             if item.legend:
                 item.legend.clear()
+            limits = self._place_limits(item, key, p)
             res = self.results.get(key)
-            if not res:
-                continue
-            for lv in LEVELS:
-                pts = sorted((r["hz"], r["L"]) for r in res["rows"] if r["level"] == lv)
-                if pts:
-                    col = LEVEL_COLORS[lv]
-                    item.plot([a for a, _ in pts], [b for _, b in pts], pen=pg.mkPen(col, width=2), symbol="o",
-                              symbolSize=6, symbolBrush=col, symbolPen=None, name=v_label(lv))
-        rows, verdict = evaluate(self.profile(), self.results)
+            ys = [r["L"] for r in res["rows"]] if res else []
+            for lv in (LEVELS if res else ()):
+                lv_rows = sorted((r for r in res["rows"] if r["level"] == lv), key=lambda r: r["hz"])
+                if lv_rows:
+                    rv = reveal if lv_rows[-1] is newest else 1.0
+                    plot_series(plot, [r["hz"] for r in lv_rows], [r["L"] for r in lv_rows], LEVEL_COLORS[lv],
+                                v_label(lv), log_x=True, symbol_size=6, reveal=rv)
+            if ys or limits:                     # keep the curves and the limits in view together
+                lo, hi = min(ys + limits), max(ys + limits)
+                pad = (hi - lo) * 0.12 or abs(hi) * 0.05 or 1e-9
+                item.getViewBox().setYRange(lo - pad, hi + pad, padding=0)
+        rows, verdict = evaluate(p, self.results)
         self.summary.setRowCount(len(rows))
         c = theme.c
         for i, r in enumerate(rows):
