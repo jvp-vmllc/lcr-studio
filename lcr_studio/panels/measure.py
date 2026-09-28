@@ -140,7 +140,7 @@ class MeasurePanel(QWidget):
         self.hold.setToolTip("Freeze the readout; logging and charts continue")
         self.rel = QPushButton("Relative  (R)")
         self.rel.setCheckable(True)
-        self.rel.setToolTip("Use the current reading as reference and show the deviation from it")
+        self.rel.setToolTip("Show the change from the current reading")
         self.rel.toggled.connect(self._toggle_rel)
         snap = QPushButton("Snapshot to log  (S)")
         snap.clicked.connect(lambda: self.last and self.snapshot.emit(self.last))
@@ -152,7 +152,7 @@ class MeasurePanel(QWidget):
         return card
 
     def _build_derived(self):
-        card = Card("Equivalent circuit (derived)")
+        card = Card("Derived parameters")
         self.derived_note = muted("")
         card.body.addWidget(self.derived_note)
         grid = QGridLayout()
@@ -332,8 +332,8 @@ class MeasurePanel(QWidget):
         if z is None:
             for v in self.derived.values():
                 v.setText("—")
-            self.derived_note.setText("Needs L/C with D, Q, θ or ESR — or R/Z with X or θ." if r.ptype != "DCR"
-                                      else "Not available in DC resistance mode.")
+            self.derived_note.setText("Not available for DCR." if r.ptype == "DCR"
+                                      else "Not available for this parameter pair.")
         else:
             params = params_from_z(z, f)
             for k, lab in self.derived.items():

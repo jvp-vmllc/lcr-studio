@@ -94,7 +94,7 @@ class LogPanel(QWidget):
         row.addWidget(self.interval)
         row.addWidget(field_label("Note"))
         self.note = QLineEdit()
-        self.note.setPlaceholderText("Tag for the next rows, e.g. part number or condition")
+        self.note.setPlaceholderText("Note for new rows")
         row.addWidget(self.note, 1)
         ctl.body.addLayout(row)
         row = QHBoxLayout()

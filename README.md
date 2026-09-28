@@ -52,7 +52,7 @@ serial port), start LCR Studio, and it connects automatically.
 
 - Large readout with SI prefixes, overload (`OL`) detection and PASS/FAIL from the meter's comparator.
 - **Hold** and **Relative** (Δ and Δ% against a captured reference).
-- **Derived equivalent circuit**, calculated from every reading: |Z|, θ, Rs (ESR), Rp, Xs, Xp, Cs, Cp, Ls, Lp, D, Q.
+- **Derived parameters**, calculated from every reading: |Z|, θ, Rs (ESR), Rp, Xs, Xp, Cs, Cp, Ls, Lp, D, Q.
 - Trend charts for primary and secondary values, a live histogram and statistics (mean, σ, σ %, min, max, p-p, rate).
 - Every meter setting in the sidebar: L / C / R / Z / DCR, D / Q / X / θ° / θ rad / ESR, series / parallel,
   100 Hz – 100 kHz, 0.1 / 0.3 / 1.0 V, slow / medium / fast, auto or held range, continuous or single
@@ -132,7 +132,7 @@ cover. The full command set is documented in [PROTOCOL.md](PROTOCOL.md).
 
 | Key | Action |
 |---|---|
-| <kbd>Space</kbd> | Trigger a measurement (single-trigger mode) |
+| <kbd>Space</kbd> | Measure once (single trigger mode) |
 | <kbd>H</kbd> | Hold the readout |
 | <kbd>R</kbd> | Relative mode on/off |
 | <kbd>S</kbd> | Snapshot the current reading into the data log |

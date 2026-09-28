@@ -78,7 +78,7 @@ def test_incomplete_when_steps_missing(measured):
 
 
 def test_pdf_is_one_letter_page(measured, tmp_path):
-    _app = QApplication.instance() or QApplication([])
+    _app = QApplication.instance() or QApplication([])   # noqa: F841 (keeps the app alive)
     _, p, results = measured
     out = tmp_path / "r.pdf"
     export_pdf(str(out), p, results, default_meta(station="S1", meter="UT622E"))

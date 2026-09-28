@@ -89,7 +89,7 @@ def build_steps(p: FlybackProfile) -> list[Step]:
              f"Clip the meter to {pri}. Leave all other windings ({others}) open.",
              "PRI_OPEN", -1, [], p.lp_equ, freqs, levels, True),
         Step("llk", "Leakage inductance Llk",
-             f"Keep the meter on {pri}. Short every other winding ({others}) with short, heavy links.",
+             f"Keep the meter on {pri}. Short all other windings ({others}).",
              "PRI_SHORT", -1, list(range(len(p.secondaries))), p.llk_equ, freqs, levels, False),
     ]
 
@@ -110,8 +110,7 @@ def run_step(meter, ctx, step: Step, settle: int, navg: int) -> dict:
     """Worker-thread job: measure L and Q over the step's matrix (+ DCR), then restore the meter."""
     st0 = meter.read_settings(full=True)
     if st0.get("comp"):
-        raise ValueError("Turn off the meter's tolerance mode first (TOL key on the meter, or send COMP OFF from the "
-                         "Console tab) — it blocks function changes.")
+        raise ValueError("Turn off tolerance mode on the meter first.")
     if hasattr(meter, "set_fixture"):
         meter.set_fixture(step.fixture)          # simulator only
     get = meter.fetch if st0.get("trigger") == "AUTO" else meter.trigger_fetch

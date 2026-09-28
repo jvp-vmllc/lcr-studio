@@ -117,12 +117,10 @@ def chart(cv: Canvas, x, y, w, h, title, series, unit, xs_kind="freq", logy=Fals
     y0, y1 = ticks[0], ticks[-1]
 
     if xs_kind == "freq":
-        cats = [FREQ_HZ[f] for f in FREQUENCIES]
         xl0, xl1 = math.log10(80), math.log10(125e3)
         xmap = lambda v: px + (math.log10(v) - xl0) / (xl1 - xl0) * pw
         xticks = [(FREQ_HZ[f], f.replace("Hz", "")) for f in FREQUENCIES if f != "120Hz"]
     else:
-        cats = LEVELS
         xmap = lambda v: px + (LEVELS.index(v) + 0.5) / len(LEVELS) * pw
         xticks = [(lv, v_label(lv)) for lv in LEVELS]
     ymap = lambda v: py + ph - (v - y0) / (y1 - y0) * ph

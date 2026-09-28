@@ -133,7 +133,7 @@ class FlybackPanel(QWidget):
         g.addWidget(field_label("DCR max"), 1, 0)
         g.addWidget(self.pri_dcr, 1, 1, 1, 2)
         wind.body.addLayout(g)
-        wind.body.addWidget(field_label("Other windings (all shorted for Llk)"))
+        wind.body.addWidget(field_label("Other windings"))
         self.sec_table = QTableWidget(0, 2)
         self.sec_table.setHorizontalHeaderLabels(["Name", "Pins"])
         self.sec_table.verticalHeader().hide()
@@ -179,8 +179,7 @@ class FlybackPanel(QWidget):
             g.addWidget(field_label(lab), i, 0)
             g.addWidget(wdg, i, 1)
         spec.body.addLayout(g)
-        spec.body.addWidget(muted("Limits are checked at the test frequency and level. Leave a limit empty to "
-                                  "report the value without pass/fail."))
+        spec.body.addWidget(muted("Leave a limit empty to skip its pass/fail check."))
         col.addWidget(spec)
 
         mat = Card("Test matrix")
@@ -235,11 +234,11 @@ class FlybackPanel(QWidget):
 
     # ============================================================ steps ==
     def _build_steps(self):
-        card = Card("Measurement")
+        card = Card("Run test")
         row = QHBoxLayout()
         row.addWidget(field_label("Step"))
         self.step_pick = QComboBox()
-        self.step_pick.setToolTip("Which measurement to run next on the transformer")
+        self.step_pick.setToolTip("Measurement to run")
         self.step_pick.currentIndexChanged.connect(lambda _i: self._show_step())
         row.addWidget(self.step_pick, 1)
         self.run_btn = QPushButton("Run step")
@@ -267,7 +266,7 @@ class FlybackPanel(QWidget):
         self.step_status = QLabel("")
         self.step_status.setWordWrap(True)
         card.body.addWidget(self.step_status)
-        self.hint = muted("Tip: run open/short correction on the meter with the same leads before testing.")
+        self.hint = muted("Run open/short correction on the meter with the same leads before testing.")
         card.body.addWidget(self.hint)
         return card
 
@@ -278,7 +277,7 @@ class FlybackPanel(QWidget):
         card.header.addWidget(self.verdict_badge)
         prev = QPushButton("Preview report")
         prev.clicked.connect(self.preview)
-        pdf = QPushButton("Export PDF report…")
+        pdf = QPushButton("Export PDF…")
         pdf.setObjectName("Accent")
         pdf.clicked.connect(self.export_pdf)
         xls = QPushButton("Export data…")
@@ -499,17 +498,16 @@ class FlybackPanel(QWidget):
         self.results[key] = result
         self.status[key] = "aborted" if result.get("aborted") else "done"
         self._set_running(False)
-        self.progress_text.setText("Aborted — partial data kept." if result.get("aborted") else "Step complete. "
-                                   "Meter settings restored.")
+        self.progress_text.setText("Aborted. Partial data kept." if result.get("aborted") else "Step complete.")
         self._rebuild_steps()
         self._refresh_results()
         if not result.get("aborted"):
             nxt = next((i for i, s in enumerate(self.steps) if self.status.get(s.key) != "done"), None)
             if nxt is not None:
                 self.step_pick.setCurrentIndex(nxt)
-                self.progress_text.setText(f"Step complete. Rewire for step {nxt + 1} and press Run.")
+                self.progress_text.setText(f"Step complete. Wire up for step {nxt + 1} and press Run.")
             else:
-                self.progress_text.setText("All steps complete — export the report.")
+                self.progress_text.setText("All steps complete. Export the report.")
 
     def on_error(self, tag, msg):
         if tag != self.TAG or not self.running_key:
@@ -579,7 +577,7 @@ class FlybackPanel(QWidget):
             self.meta["correction"] = f"Open {'✓' if st.get('open_corr') else '✗'}   Short {'✓' if st.get('short_corr') else '✗'}"
             ok = st.get("open_corr") and st.get("short_corr")
             self.hint.setText("Open/short correction is active on the meter." if ok else
-                              "⚠ Open/short correction is not active — run it on the meter with the same leads.")
+                              "⚠ Open/short correction is off. Run it on the meter with the same leads.")
 
     def _meta(self):
         return default_meta(station=self.station.text().strip(), notes=self.notes.text().strip(),

@@ -5,8 +5,7 @@ import datetime as dt
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QTextCursor
-from PySide6.QtWidgets import (QCheckBox, QHBoxLayout, QLineEdit, QListWidget, QPlainTextEdit, QPushButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLineEdit, QListWidget, QPlainTextEdit, QPushButton, QWidget
 
 from ..theme import pick_font, theme
 from ..widgets import Card, muted
@@ -50,7 +49,7 @@ class ConsolePanel(QWidget):
         row = QHBoxLayout()
         self.cmd = QLineEdit()
         self.cmd.setFont(f)
-        self.cmd.setPlaceholderText("Type a command, e.g. FREQ 10kHz or FREQ?  —  ↑/↓ for history")
+        self.cmd.setPlaceholderText("Command, e.g. FREQ?   (↑/↓ = history)")
         self.cmd.returnPressed.connect(self.send)
         self.cmd.installEventFilter(self)
         send = QPushButton("Send")
@@ -68,7 +67,7 @@ class ConsolePanel(QWidget):
             self.quick.addItem(f"{cmd}    — {desc}")
         self.quick.itemDoubleClicked.connect(lambda it: (self.cmd.setText(it.text().split()[0]), self.send()))
         self.quick.itemClicked.connect(lambda it: self.cmd.setText(it.text().split()[0]))
-        qc.body.addWidget(muted("Click to insert, double-click to send. Full reference: PROTOCOL.md"))
+        qc.body.addWidget(muted("Click to insert, double-click to send."))
         qc.body.addWidget(self.quick, 1)
         root.addWidget(qc)
 

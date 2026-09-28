@@ -1,12 +1,13 @@
 """Frequency / level sweep with multi-parameter capture and run overlays."""
 from __future__ import annotations
 
+import math
 import statistics
 
 import pyqtgraph as pg
 import pyqtgraph.exporters  # noqa: F401  (registers ImageExporter)
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QGridLayout, QHBoxLayout,
                                QLineEdit, QListWidget, QListWidgetItem, QProgressBar, QPushButton,
                                QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
@@ -109,7 +110,7 @@ class SweepPanel(QWidget):
             self.level_boxes[lv] = cb
             row.addWidget(cb)
         cfg.body.addLayout(row)
-        cfg.body.addWidget(field_label("Secondary parameters to capture"))
+        cfg.body.addWidget(field_label("Also record"))
         self.sec_boxes = {}
         g = QGridLayout()
         for i, (s, label) in enumerate(SWEEP_SECONDARIES):
@@ -123,7 +124,7 @@ class SweepPanel(QWidget):
         self.settle = QSpinBox()
         self.settle.setRange(0, 20)
         self.settle.setValue(2)
-        self.settle.setToolTip("Readings discarded after every change so the meter can settle / auto-range")
+        self.settle.setToolTip("Readings to discard after each change")
         self.navg = QSpinBox()
         self.navg.setRange(1, 100)
         self.navg.setValue(5)
@@ -154,7 +155,7 @@ class SweepPanel(QWidget):
         self.bar = QProgressBar()
         self.bar.setTextVisible(False)
         cfg.body.addWidget(self.bar)
-        self.status = muted("Primary parameter and equivalent circuit come from the current meter setup.")
+        self.status = muted("Uses the meter's current parameter and circuit model.")
         cfg.body.addWidget(self.status)
         left.addWidget(cfg)
 
@@ -192,7 +193,6 @@ class SweepPanel(QWidget):
         self.pplot = make_plot("Primary", "", "Frequency", "Hz", log_x=True)
         self.splot = make_plot("Secondary", "", "Frequency", "Hz", log_x=True)
         self.splot.setXLink(self.pplot)
-        import math
         ticks = [[(math.log10(FREQ_HZ[f]), f.replace("Hz", "")) for f in FREQUENCIES if f != "120Hz"],
                  [(math.log10(120), "")]]
         for plot in (self.pplot, self.splot):
@@ -273,8 +273,7 @@ class SweepPanel(QWidget):
         run.update(ptype=result["ptype"], equ=result["equ"], rows=result["rows"])
         self.abort_btn.setEnabled(False)
         self.run_btn.setEnabled(self.connected)
-        self.status.setText(("Aborted — partial data kept." if result["aborted"] else "Sweep complete.")
-                            + " Settings restored.")
+        self.status.setText("Aborted. Partial data kept." if result["aborted"] else "Sweep complete.")
         if run["rows"]:
             self._add_run(run)
 

@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from PIL import Image
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QLinearGradient, QPainter, QPainterPath, QPen
 
 ROOT = Path(__file__).resolve().parent.parent

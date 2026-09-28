@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton, QScrollArea,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QPushButton, QScrollArea, QVBoxLayout,
+                               QWidget)
 
 from ..ut622e import BAUDS, DEMO_PORT, FREQUENCIES, LEVELS, find_ports
 from ..widgets import Badge, Card, Segmented, ask, field_label, muted
@@ -53,8 +53,8 @@ class ControlPanel(QScrollArea):
         corr.addWidget(field_label("Correction"))
         self.open_badge = Badge("OPEN")
         self.short_badge = Badge("SHORT")
-        self.open_badge.setToolTip("Open-circuit correction (performed on the meter)")
-        self.short_badge.setToolTip("Short-circuit correction (performed on the meter)")
+        self.open_badge.setToolTip("Open correction (done on the meter)")
+        self.short_badge.setToolTip("Short correction (done on the meter)")
         corr.addWidget(self.open_badge)
         corr.addWidget(self.short_badge)
         corr.addStretch(1)
@@ -72,7 +72,7 @@ class ControlPanel(QScrollArea):
                                     ("RAD", "θ rad"), ("ESR", "ESR")], columns=6)
         self.secondary.changed.connect(lambda v: self._set(lambda mt: mt.set_secondary(v)))
         m.body.addWidget(self.secondary)
-        m.body.addWidget(field_label("Equivalent circuit"))
+        m.body.addWidget(field_label("Circuit model"))
         self.equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
         self.equ.changed.connect(lambda v: self._set(lambda mt: mt.set_equivalent(v)))
         m.body.addWidget(self.equ)
@@ -84,7 +84,7 @@ class ControlPanel(QScrollArea):
         self.freq = Segmented([(f, f.replace("Hz", "")) for f in FREQUENCIES])
         self.freq.changed.connect(lambda v: self._set(lambda mt: mt.set_frequency(v)))
         s.body.addWidget(self.freq)
-        s.body.addWidget(field_label("Level (Vrms)"))
+        s.body.addWidget(field_label("Level"))
         self.level = Segmented(LEVELS)
         self.level.changed.connect(lambda v: self._set(lambda mt: mt.set_level(v)))
         s.body.addWidget(self.level)
@@ -101,7 +101,7 @@ class ControlPanel(QScrollArea):
         self.range_auto.clicked.connect(lambda on: self._set(lambda mt: mt.set_range_auto(on)))
         r.body.addWidget(self.range_auto)
         self.range = Segmented([(0, "100k"), (1, "10k"), (2, "1k"), (3, "100"), (4, "10")])
-        self.range.setToolTip("Range resistor in Ω — selecting one holds the range")
+        self.range.setToolTip("Hold a fixed range (Ω)")
         self.range.changed.connect(lambda v: self._set(lambda mt: mt.set_range(v)))
         r.body.addWidget(self.range)
         col.addWidget(r)
@@ -111,32 +111,32 @@ class ControlPanel(QScrollArea):
         self.trigger = Segmented([("AUTO", "Continuous"), ("MAN", "Single")])
         self.trigger.changed.connect(lambda v: self._set(lambda mt: mt.set_trigger_auto(v == "AUTO")))
         t.body.addWidget(self.trigger)
-        self.trig_btn = QPushButton("Trigger measurement  (Space)")
+        self.trig_btn = QPushButton("Measure once  (Space)")
         self.trig_btn.setObjectName("Accent")
         self.trig_btn.clicked.connect(self.worker.trigger)
         t.body.addWidget(self.trig_btn)
-        self.sync = QCheckBox("Follow front-panel changes")
+        self.sync = QCheckBox("Follow the meter's keys")
         self.sync.setChecked(True)
-        self.sync.setToolTip("Re-read settings every few seconds so changes made on the meter's keys show up here")
+        self.sync.setToolTip("Pick up settings changed on the meter itself")
         self.sync.toggled.connect(lambda on: setattr(self.worker, "sync_front_panel", on))
         t.body.addWidget(self.sync)
         col.addWidget(t)
 
         # --- front panel
-        f = Card("Instrument")
+        f = Card("Meter")
         row = QHBoxLayout()
         lock = QPushButton("Lock keys")
-        lock.setToolTip("*LLO — lock the meter's keypad (hold power 1 s on the meter to unlock)")
+        lock.setToolTip("Lock the meter's keypad (hold its power key 1 s to unlock)")
         lock.clicked.connect(lambda: self._set(lambda mt: mt.lock_keys(), refresh=False))
         unlock = QPushButton("Unlock keys")
-        unlock.setToolTip("*GTL — return the keypad to local control")
+        unlock.setToolTip("Unlock the meter's keypad")
         unlock.clicked.connect(lambda: self._set(lambda mt: mt.unlock_keys(), refresh=False))
         row.addWidget(lock)
         row.addWidget(unlock)
         f.body.addLayout(row)
-        reset = QPushButton("Reset measurement settings")
+        reset = QPushButton("Reset meter settings")
         reset.setObjectName("Danger")
-        reset.setToolTip("*RST — resets measurement parameters; tolerance and recording modes are turned off")
+        reset.setToolTip("Reset the meter's measurement settings")
         reset.clicked.connect(self._reset)
         f.body.addWidget(reset)
         col.addWidget(f)
@@ -151,8 +151,8 @@ class ControlPanel(QScrollArea):
         self.worker.call(fn, tag="set", refresh=refresh)
 
     def _reset(self):
-        if ask(self, "Reset meter", "Reset the meter's measurement settings (*RST)?\n"
-                                    "Tolerance and recording modes will be turned off."):
+        if ask(self, "Reset meter", "Reset the meter's measurement settings?\n"
+                                    "Tolerance and recording modes on the meter will be turned off."):
             self._set(lambda mt: mt.reset())
 
     def _toggle_connect(self):
