@@ -1,4 +1,5 @@
 import re
+from dataclasses import replace
 
 import pytest
 from PySide6.QtWidgets import QApplication
@@ -37,10 +38,10 @@ def measured():
     return meter, p, results
 
 
-def test_steps_cover_primary_leakage_and_each_winding(measured):
+def test_steps_are_primary_then_leakage(measured):
     _, p, _ = measured
     keys = [s.key for s in build_steps(p)]
-    assert keys == ["lp", "llk", "sec0", "sec1"]
+    assert keys == ["lp", "llk"]
     llk = build_steps(p)[1]
     assert llk.shorted == [0, 1] and llk.measured == -1
 
@@ -51,7 +52,6 @@ def test_measurements_and_meter_restored(measured):
     assert len(lp["rows"]) == 4 and lp["dcr"] == pytest.approx(0.42, rel=0.01)
     assert all(600e-6 < r["L"] < 660e-6 for r in lp["rows"])
     assert all(9e-6 < r["L"] < 9.5e-6 for r in results["llk"]["rows"])
-    assert len(results["sec0"]["rows"]) == 2           # secondaries: test frequency x levels
     st = meter.read_settings(full=False)
     assert (st["primary"], st["frequency"]) == ("C", "1kHz")
 
@@ -59,14 +59,16 @@ def test_measurements_and_meter_restored(measured):
 def test_evaluation_passes_and_fails(measured):
     _, p, results = measured
     rows, verdict = evaluate(p, results)
-    assert verdict == "FAIL"                           # Aux DCR 0.36 Ω > 0.1 Ω limit
+    assert verdict == "PASS"
     status = {r["param"]: r["status"] for r in rows}
     assert status["Primary inductance Lp"] == "PASS"
-    assert status["Aux DCR"] == "FAIL"
+    assert status["Leakage inductance Llk"] == "PASS"
+    assert status["Primary DCR"] == "PASS"
+    assert not any(r["param"].startswith(("12V", "Aux", "Turns ratio")) for r in rows)   # no secondary rows
     k = next(r for r in rows if r["param"] == "Coupling coefficient k")
     assert 0.99 < float(k["value"]) < 1.0
-    ratio = next(r for r in rows if r["param"].startswith("Turns ratio Primary:12V"))
-    assert float(ratio["value"].split(":")[0]) == pytest.approx(6.2, rel=0.005)
+    _, verdict = evaluate(replace(p, llk_max=5e-6), results)     # simulated Llk is about 9.2 µH
+    assert verdict == "FAIL"
 
 
 def test_incomplete_when_steps_missing(measured):
@@ -79,7 +81,7 @@ def test_pdf_is_one_letter_page(measured, tmp_path):
     _app = QApplication.instance() or QApplication([])
     _, p, results = measured
     out = tmp_path / "r.pdf"
-    export_pdf(str(out), p, results, default_meta(serial="S1", meter="UT622E"))
+    export_pdf(str(out), p, results, default_meta(station="S1", meter="UT622E"))
     data = out.read_bytes()
     assert data.startswith(b"%PDF")
     assert len(re.findall(rb"/Type\s*/Page[^s]", data)) == 1

@@ -1,133 +1,27 @@
-"""Flyback transformer test: guided Lp / Llk / DCR / secondary measurements and a one-page report."""
+"""Flyback transformer test: Lp / Llk / DCR measurements and a one-page report."""
 from __future__ import annotations
 
 import json
 import math
+import platform
 from datetime import datetime
 
 import pyqtgraph as pg
-from PySide6.QtCore import QPointF, QRectF, QSettings, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtCore import QSettings, Qt
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QGridLayout, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea,
                                QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from .. import __version__
-from ..engmath import fmt, parse_eng
+from ..engmath import fmt
 from ..flyback import (MAX_SECONDARIES, FlybackProfile, Winding, build_steps, evaluate, hz_label, run_step, v_label)
 from ..report import LEVEL_COLORS, default_meta, export_pdf, render_image
-from ..theme import repolish, theme
+from ..theme import theme
 from ..ut622e import FREQ_HZ, FREQUENCIES, LEVELS
 from ..widgets import Badge, Card, EngEdit, Segmented, field_label, make_plot, muted
 
 STATUS_KIND = {"done": "good", "running": "accent", "aborted": "warn", "error": "bad", "pending": ""}
-
-
-# ------------------------------------------------------------ wiring diagram --
-
-class WiringDiagram(QWidget):
-    """Transformer symbol showing where the meter connects and which windings are shorted."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.primary = "Primary"
-        self.secondaries = ["Secondary"]
-        self.measured = -1
-        self.shorted: list[int] = []
-        self.setMinimumSize(330, 210)
-        theme.changed.connect(lambda _c: self.update())
-
-    def set_state(self, primary, secondaries, measured, shorted):
-        self.primary, self.secondaries = primary, secondaries
-        self.measured, self.shorted = measured, shorted
-        self.update()
-
-    def _coil(self, p, x, y0, y1, facing_right, pen):
-        n = 4
-        h = (y1 - y0) / n
-        path = QPainterPath(QPointF(x, y0))
-        for i in range(n):
-            r = QRectF(x - h / 2, y0 + i * h, h, h)
-            path.arcTo(r, 90, -180 if facing_right else 180)
-        p.setPen(pen)
-        p.drawPath(path)
-
-    def paintEvent(self, _ev):
-        c = theme.c
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height()
-        cx = w / 2
-        muted_pen = QPen(QColor(c["muted"]), 2)
-        accent_pen = QPen(QColor(c["accent"]), 3)
-        short_pen = QPen(QColor(c["warn"]), 4, Qt.SolidLine, Qt.RoundCap)
-        # core
-        p.setPen(QPen(QColor(c["border"]), 3))
-        p.drawLine(QPointF(cx - 5, 18), QPointF(cx - 5, h - 18))
-        p.drawLine(QPointF(cx + 5, 18), QPointF(cx + 5, h - 18))
-        font = p.font()
-        font.setPointSizeF(8.5)
-        p.setFont(font)
-
-        def terminals(x_coil, y0, y1, x_pin, pen):
-            p.setPen(pen)
-            p.drawLine(QPointF(x_coil, y0), QPointF(x_pin, y0))
-            p.drawLine(QPointF(x_coil, y1), QPointF(x_pin, y1))
-            p.setBrush(QColor(c["surface"]))
-            for yy in (y0, y1):
-                p.drawEllipse(QPointF(x_pin, yy), 4, 4)
-            p.setBrush(Qt.NoBrush)
-
-        def meter(x_pin, y0, y1, left):
-            bx = x_pin - 58 if left else x_pin + 14
-            box = QRectF(bx, (y0 + y1) / 2 - 16, 44, 32)
-            p.setPen(QPen(QColor(c["accent"]), 1.5))
-            p.setBrush(QColor(c["accent"]))
-            p.drawRoundedRect(box, 6, 6)
-            p.setBrush(Qt.NoBrush)
-            p.setPen(QColor("#ffffff"))
-            p.drawText(box, Qt.AlignCenter, "LCR")
-            edge = box.right() if left else box.left()
-            p.setPen(QPen(QColor("#ef4444"), 2))
-            p.drawLine(QPointF(edge, box.top() + 8), QPointF(x_pin, y0))
-            p.setPen(QPen(QColor(c["text"]), 2))
-            p.drawLine(QPointF(edge, box.bottom() - 8), QPointF(x_pin, y1))
-
-        # primary
-        py0, py1 = h * 0.2, h * 0.8
-        pri_on = self.measured == -1
-        self._coil(p, cx - 26, py0, py1, False, accent_pen if pri_on else muted_pen)
-        terminals(cx - 26, py0, py1, cx - 70, accent_pen if pri_on else muted_pen)
-        p.setPen(QColor(c["text"] if pri_on else c["muted"]))
-        p.drawText(QRectF(cx - 140, py1 + 6, 110, 16), Qt.AlignRight, self.primary)
-        if pri_on:
-            meter(cx - 70, py0, py1, True)
-
-        # secondaries
-        n = max(1, len(self.secondaries))
-        span = (h - 36) / n
-        for i, name in enumerate(self.secondaries):
-            y0 = 18 + i * span + span * 0.18
-            y1 = 18 + (i + 1) * span - span * 0.18
-            on = self.measured == i
-            pen = accent_pen if on else muted_pen
-            self._coil(p, cx + 26, y0, y1, True, pen)
-            terminals(cx + 26, y0, y1, cx + 70, pen)
-            if i in self.shorted:
-                p.setPen(short_pen)
-                p.drawLine(QPointF(cx + 78, y0), QPointF(cx + 78, y1))
-                p.drawLine(QPointF(cx + 70, y0), QPointF(cx + 78, y0))
-                p.drawLine(QPointF(cx + 70, y1), QPointF(cx + 78, y1))
-                p.setPen(QColor(c["warn"]))
-                p.drawText(QRectF(cx + 84, (y0 + y1) / 2 - 8, 60, 16), Qt.AlignLeft | Qt.AlignVCenter, "SHORT")
-            elif on:
-                meter(cx + 70, y0, y1, False)
-            else:
-                p.setPen(QColor(c["muted"]))
-                p.drawText(QRectF(cx + 84, (y0 + y1) / 2 - 8, 60, 16), Qt.AlignLeft | Qt.AlignVCenter, "open")
-            p.setPen(QColor(c["text"] if on else c["muted"]))
-            p.drawText(QRectF(cx + 12, y1 + 1, 150, 14), Qt.AlignLeft, name)
-        p.end()
 
 
 # ------------------------------------------------------------ report preview --
@@ -182,7 +76,7 @@ class FlybackPanel(QWidget):
         split.setChildrenCollapsible(False)
         split.addWidget(self._build_steps())
         split.addWidget(self._build_results())
-        split.setSizes([380, 470])
+        split.setSizes([250, 600])
         root.addWidget(split, 1)
 
         self._load_saved_profile()
@@ -206,15 +100,12 @@ class FlybackPanel(QWidget):
         g.setVerticalSpacing(6)
         self.part = QLineEdit()
         self.part.setPlaceholderText("e.g. FBT-EE25-12V")
-        self.desc = QLineEdit()
-        self.desc.setPlaceholderText("e.g. 65 W flyback, 12 V / 5.4 A")
-        self.serial = QLineEdit()
-        self.serial.setPlaceholderText("serial number or lot")
-        self.operator = QLineEdit()
+        self.station = QLineEdit(platform.node())
+        self.station.setReadOnly(True)
+        self.station.setToolTip("This computer's name — printed on the report as the test station")
         self.notes = QLineEdit()
         self.notes.setPlaceholderText("printed on the report")
-        for i, (lab, wdg) in enumerate([("Part number", self.part), ("Description", self.desc),
-                                        ("Serial / lot", self.serial), ("Operator", self.operator),
+        for i, (lab, wdg) in enumerate([("Part number", self.part), ("Station", self.station),
                                         ("Notes", self.notes)]):
             g.addWidget(field_label(lab), i, 0)
             g.addWidget(wdg, i, 1)
@@ -243,15 +134,13 @@ class FlybackPanel(QWidget):
         g.addWidget(self.pri_dcr, 1, 1, 1, 2)
         wind.body.addLayout(g)
         wind.body.addWidget(field_label("Other windings (all shorted for Llk)"))
-        self.sec_table = QTableWidget(0, 3)
-        self.sec_table.setHorizontalHeaderLabels(["Name", "Pins", "DCR max"])
+        self.sec_table = QTableWidget(0, 2)
+        self.sec_table.setHorizontalHeaderLabels(["Name", "Pins"])
         self.sec_table.verticalHeader().hide()
         hh = self.sec_table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.Stretch)
         hh.setSectionResizeMode(1, QHeaderView.Fixed)
-        hh.setSectionResizeMode(2, QHeaderView.Fixed)
-        hh.resizeSection(1, 58)
-        hh.resizeSection(2, 86)
+        hh.resizeSection(1, 72)
         self.sec_table.setFixedHeight(140)
         self.sec_table.itemChanged.connect(lambda _i: self._profile_changed())
         wind.body.addWidget(self.sec_table)
@@ -325,13 +214,10 @@ class FlybackPanel(QWidget):
         g.addWidget(field_label("Average"), 1, 0)
         g.addWidget(self.navg, 1, 1)
         mat.body.addLayout(g)
-        self.sec_full = QCheckBox("Full matrix for other windings")
-        self.sec_full.setToolTip("Measure secondary windings at every frequency; by default only the test frequency is used")
-        mat.body.addWidget(self.sec_full)
         col.addWidget(mat)
         col.addStretch(1)
 
-        for w in (self.part, self.desc, self.pri_name, self.pri_pins):
+        for w in (self.part, self.pri_name, self.pri_pins):
             w.textChanged.connect(lambda _t: self._profile_changed())
         for w in (self.pri_dcr, self.lp_nom, self.llk_max, self.llk_pct):
             w.valueChanged.connect(lambda _v: self._profile_changed())
@@ -343,31 +229,20 @@ class FlybackPanel(QWidget):
             w.valueChanged.connect(lambda _v: self._profile_changed())
         for seg in (self.lp_equ, self.llk_equ):
             seg.changed.connect(lambda _v: self._profile_changed())
-        for cb in list(self.freq_boxes.values()) + list(self.level_boxes.values()) + [self.sec_full]:
+        for cb in list(self.freq_boxes.values()) + list(self.level_boxes.values()):
             cb.toggled.connect(lambda _on: self._profile_changed())
         return scroll
 
     # ============================================================ steps ==
     def _build_steps(self):
-        card = Card("Test sequence")
-        self.verdict_badge = Badge("NOT TESTED")
-        card.header.addWidget(self.verdict_badge)
-        body = QHBoxLayout()
-        left = QVBoxLayout()
-        self.step_table = QTableWidget(0, 3)
-        self.step_table.setHorizontalHeaderLabels(["Step", "Status", "Result"])
-        self.step_table.verticalHeader().hide()
-        self.step_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.step_table.setSelectionMode(QTableWidget.SingleSelection)
-        self.step_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        hh = self.step_table.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.Stretch)
-        hh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.step_table.currentCellChanged.connect(lambda *_: self._show_step())
-        left.addWidget(self.step_table, 1)
+        card = Card("Measurement")
         row = QHBoxLayout()
-        self.run_btn = QPushButton("Run selected step")
+        row.addWidget(field_label("Step"))
+        self.step_pick = QComboBox()
+        self.step_pick.setToolTip("Which measurement to run next on the transformer")
+        self.step_pick.currentIndexChanged.connect(lambda _i: self._show_step())
+        row.addWidget(self.step_pick, 1)
+        self.run_btn = QPushButton("Run step")
         self.run_btn.setObjectName("Accent")
         self.run_btn.clicked.connect(self.run_selected)
         self.abort_btn = QPushButton("Abort")
@@ -376,36 +251,31 @@ class FlybackPanel(QWidget):
         self.new_btn = QPushButton("New unit")
         self.new_btn.setToolTip("Clear results for the next transformer (keeps the profile)")
         self.new_btn.clicked.connect(self.new_unit)
-        row.addWidget(self.run_btn, 1)
+        row.addWidget(self.run_btn)
         row.addWidget(self.abort_btn)
         row.addWidget(self.new_btn)
-        left.addLayout(row)
-        self.bar = QProgressBar()
-        self.bar.setTextVisible(False)
-        left.addWidget(self.bar)
-        self.progress_text = muted("")
-        left.addWidget(self.progress_text)
-        body.addLayout(left, 5)
-
-        right = QVBoxLayout()
-        self.diagram = WiringDiagram()
-        self.diagram.setMinimumSize(300, 190)
-        right.addWidget(self.diagram, 1)
+        card.body.addLayout(row)
         self.instruction = QLabel("")
         self.instruction.setWordWrap(True)
-        self.instruction.setMinimumHeight(64)
         self.instruction.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        right.addWidget(self.instruction)
+        card.body.addWidget(self.instruction)
+        self.bar = QProgressBar()
+        self.bar.setTextVisible(False)
+        card.body.addWidget(self.bar)
+        self.progress_text = muted("")
+        card.body.addWidget(self.progress_text)
+        self.step_status = QLabel("")
+        self.step_status.setWordWrap(True)
+        card.body.addWidget(self.step_status)
         self.hint = muted("Tip: run open/short correction on the meter with the same leads before testing.")
-        right.addWidget(self.hint)
-        body.addLayout(right, 4)
-        card.body.addLayout(body, 1)
-        card.setMinimumHeight(360)
+        card.body.addWidget(self.hint)
         return card
 
     # ========================================================== results ==
     def _build_results(self):
         card = Card("Results")
+        self.verdict_badge = Badge("NOT TESTED")
+        card.header.addWidget(self.verdict_badge)
         prev = QPushButton("Preview report")
         prev.clicked.connect(self.preview)
         pdf = QPushButton("Export PDF report…")
@@ -451,27 +321,21 @@ class FlybackPanel(QWidget):
         for r in range(self.sec_table.rowCount()):
             name = (self.sec_table.item(r, 0).text() if self.sec_table.item(r, 0) else "").strip() or f"Winding {r + 1}"
             pins = self.sec_table.item(r, 1).text().strip() if self.sec_table.item(r, 1) else ""
-            try:
-                dmax = parse_eng(self.sec_table.item(r, 2).text()) if self.sec_table.item(r, 2) and \
-                    self.sec_table.item(r, 2).text().strip() else None
-            except ValueError:
-                dmax = None
-            secs.append(Winding(name, pins, dmax))
+            secs.append(Winding(name, pins))
         return FlybackProfile(
-            part_number=self.part.text().strip(), description=self.desc.text().strip(),
+            part_number=self.part.text().strip(),
             primary=Winding(self.pri_name.text().strip() or "Primary", self.pri_pins.text().strip(), self.pri_dcr.value()),
             secondaries=secs, spec_freq=self.spec_freq.currentData(), spec_level=self.spec_level.currentData(),
             lp_nom=self.lp_nom.value(), lp_tol=self.lp_tol.value(), llk_max=self.llk_max.value(),
             llk_pct_max=self.llk_pct.value(), lp_equ=self.lp_equ.value() or "SER", llk_equ=self.llk_equ.value() or "SER",
             freqs=[f for f, cb in self.freq_boxes.items() if cb.isChecked()],
             levels=[lv for lv, cb in self.level_boxes.items() if cb.isChecked()],
-            settle=self.settle.value(), navg=self.navg.value(), sec_full_matrix=self.sec_full.isChecked())
+            settle=self.settle.value(), navg=self.navg.value())
 
     def set_profile(self, p: FlybackProfile):
         self._loading = True
         try:
             self.part.setText(p.part_number)
-            self.desc.setText(p.description)
             self.pri_name.setText(p.primary.name)
             self.pri_pins.setText(p.primary.pins)
             self.pri_dcr.set_value(p.primary.dcr_max, 4)
@@ -492,7 +356,6 @@ class FlybackPanel(QWidget):
                 cb.setChecked(lv in p.levels)
             self.settle.setValue(p.settle)
             self.navg.setValue(p.navg)
-            self.sec_full.setChecked(p.sec_full_matrix)
         finally:
             self._loading = False
         self._profile_changed()
@@ -505,7 +368,6 @@ class FlybackPanel(QWidget):
         self.sec_table.insertRow(r)
         self.sec_table.setItem(r, 0, QTableWidgetItem(w.name))
         self.sec_table.setItem(r, 1, QTableWidgetItem(w.pins))
-        self.sec_table.setItem(r, 2, QTableWidgetItem(fmt(w.dcr_max, "Ω", 4) if w.dcr_max else ""))
         self.sec_table.blockSignals(False)
         self._profile_changed()
 
@@ -522,7 +384,6 @@ class FlybackPanel(QWidget):
             return
         if self.qs is not None:
             self.qs.setValue("flyback/profile", json.dumps(self.profile().to_dict()))
-            self.qs.setValue("flyback/operator", self.operator.text())
         self._rebuild_steps()
         self._refresh_results()
 
@@ -535,7 +396,6 @@ class FlybackPanel(QWidget):
                     p = FlybackProfile.from_dict(json.loads(raw))
                 except (ValueError, TypeError):
                     pass
-            self.operator.setText(self.qs.value("flyback/operator", ""))
         self.set_profile(p)
 
     def _load_profile_file(self):
@@ -560,20 +420,22 @@ class FlybackPanel(QWidget):
         self.steps = build_steps(self.profile())
         keys = {s.key for s in self.steps}
         self.results = {k: v for k, v in self.results.items() if k in keys}
-        cur = self.step_table.currentRow()
-        self.step_table.setRowCount(len(self.steps))
+        cur = max(self.step_pick.currentIndex(), 0)
+        self.step_pick.blockSignals(True)
+        self.step_pick.clear()
         for i, s in enumerate(self.steps):
-            self.step_table.setItem(i, 0, QTableWidgetItem(f"{i + 1}. {s.title}"))
+            self.step_pick.addItem(f"{i + 1}. {s.title}", s.key)
+        self.step_pick.setCurrentIndex(min(cur, len(self.steps) - 1))
+        self.step_pick.blockSignals(False)
+        lines = []
+        for i, s in enumerate(self.steps):
             st = self.status.get(s.key, "pending")
-            it = QTableWidgetItem(st.upper())
             kind = STATUS_KIND.get(st, "")
-            it.setForeground(QColor(theme.c.get(kind, theme.c["muted"]) if kind else theme.c["muted"]))
-            f = it.font()
-            f.setBold(True)
-            it.setFont(f)
-            self.step_table.setItem(i, 1, it)
-            self.step_table.setItem(i, 2, QTableWidgetItem(self._step_summary(s.key)))
-        self.step_table.setCurrentCell(min(max(cur, 0), len(self.steps) - 1), 0)
+            color = theme.c.get(kind, theme.c["muted"]) if kind else theme.c["muted"]
+            summary = self._step_summary(s.key)
+            lines.append(f"{i + 1}. {s.title}: <b style='color:{color}'>{st.upper()}</b>"
+                         + (f" · {summary}" if summary else ""))
+        self.step_status.setText("<br>".join(lines))
         self._show_step()
 
     def _step_summary(self, key):
@@ -588,12 +450,10 @@ class FlybackPanel(QWidget):
         return text
 
     def _show_step(self):
-        i = self.step_table.currentRow()
+        i = self.step_pick.currentIndex()
         if not (0 <= i < len(self.steps)):
             return
         s = self.steps[i]
-        p = self.profile()
-        self.diagram.set_state(p.primary.name, [w.name for w in p.secondaries], s.measured, s.shorted)
         n = len(s.freqs) * len(s.levels)
         self.instruction.setText(f"<b>{s.title}</b><br>{s.instruction}<br>"
                                  f"<span style='color:{theme.c['muted']}'>{n} point(s): "
@@ -601,7 +461,7 @@ class FlybackPanel(QWidget):
                                  f"{' + DCR' if s.dcr else ''} · {'series' if s.equ == 'SER' else 'parallel'} model</span>")
 
     def run_selected(self):
-        i = self.step_table.currentRow()
+        i = self.step_pick.currentIndex()
         if not (0 <= i < len(self.steps)) or self.running_key:
             return
         step = self.steps[i]
@@ -646,8 +506,8 @@ class FlybackPanel(QWidget):
         if not result.get("aborted"):
             nxt = next((i for i, s in enumerate(self.steps) if self.status.get(s.key) != "done"), None)
             if nxt is not None:
-                self.step_table.setCurrentCell(nxt, 0)
-                self.progress_text.setText(f"Step complete. Reconnect for step {nxt + 1} and press Run.")
+                self.step_pick.setCurrentIndex(nxt)
+                self.progress_text.setText(f"Step complete. Rewire for step {nxt + 1} and press Run.")
             else:
                 self.progress_text.setText("All steps complete — export the report.")
 
@@ -663,11 +523,9 @@ class FlybackPanel(QWidget):
 
     def new_unit(self):
         self.results, self.status = {}, {}
-        self.serial.clear()
-        self.serial.setFocus()
         self._rebuild_steps()
         self._refresh_results()
-        self.step_table.setCurrentCell(0, 0)
+        self.step_pick.setCurrentIndex(0)
 
     # =========================================================== results ==
     def _refresh_results(self):
@@ -724,12 +582,12 @@ class FlybackPanel(QWidget):
                               "⚠ Open/short correction is not active — run it on the meter with the same leads.")
 
     def _meta(self):
-        return default_meta(serial=self.serial.text().strip(), operator=self.operator.text().strip(),
-                            notes=self.notes.text().strip(), app_version=__version__, **self.meta)
+        return default_meta(station=self.station.text().strip(), notes=self.notes.text().strip(),
+                            app_version=__version__, **self.meta)
 
     def _default_name(self, ext):
         p = self.profile()
-        stem = "_".join(x for x in (p.part_number, self.serial.text().strip()) if x) or "flyback"
+        stem = p.part_number or "flyback"
         return f"{stem}_{datetime.now():%Y%m%d_%H%M}.{ext}".replace(" ", "_").replace("/", "-")
 
     def preview(self):
@@ -754,7 +612,7 @@ class FlybackPanel(QWidget):
         ws = wb.active
         ws.title = "Summary"
         meta = self._meta()
-        for k in ("date", "serial", "operator", "meter", "correction", "notes"):
+        for k in ("date", "station", "meter", "correction", "notes"):
             ws.append([k.title(), meta.get(k, "")])
         ws.append(["Part number", p.part_number])
         ws.append([])
@@ -766,7 +624,6 @@ class FlybackPanel(QWidget):
         for r in rows:
             ws.append([r["param"], r["cond"], r["value"], r["limit"], r["status"]])
         names = {"lp": "Lp (open)", "llk": "Llk (shorted)"}
-        names.update({f"sec{i}": w.name[:28] for i, w in enumerate(p.secondaries)})
         for key, res in self.results.items():
             sh = wb.create_sheet(names.get(key, key)[:31])
             sh.append(["Level", "Frequency (Hz)", "L (H)", "L σ (H)", "Q", "Model"])

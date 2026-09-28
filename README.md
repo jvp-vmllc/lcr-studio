@@ -71,22 +71,20 @@ serial port), start LCR Studio, and it connects automatically.
 
 ### Flyback transformer test
 
-A guided test for flyback (and other multi-winding) transformers, producing a **one-page US Letter PDF
-report** per unit.
+An inductance test for flyback (and other multi-winding) transformers, producing a **one-page US Letter PDF
+report** per unit. Pick the step from the drop-down, wire the part as the instruction says and press Run:
 
 1. **Primary inductance Lp:** primary connected, all other windings open. Measured over every selected
    frequency × test level, plus the primary DC resistance.
 2. **Leakage inductance Llk:** primary connected, every other winding shorted.
-3. **Each secondary / auxiliary winding:** inductance at every test level, DC resistance and an estimated turns
-   ratio √(Lp/Ls).
 
-A wiring diagram shows where to clip the leads and which windings to short for each step. From the
-measurements it derives the **leakage ratio, coupling coefficient k = √(1 − Llk/Lp), Q, ESR and Lp level
-dependence**. Lp nominal ± tolerance, Llk max, Llk/Lp max and per-winding DCR max are checked at the
+From the measurements it derives the **leakage ratio, coupling coefficient k = √(1 − Llk/Lp), Q, ESR and Lp
+level dependence**. Lp nominal ± tolerance, Llk max, Llk/Lp max and primary DCR max are checked at the
 specification frequency and level. Profiles save as JSON so a production line can load a part in one click.
-Raw data exports to Excel.
+Raw data exports to Excel. The report is identified by part number, test station (this computer's name)
+and date.
 
-<img src="docs/images/flyback.png" alt="Flyback tab: guided steps, wiring diagram, live charts and pass/fail summary" width="100%">
+<img src="docs/images/flyback.png" alt="Flyback tab: step selector, live charts and pass/fail summary" width="100%">
 
 <table>
 <tr>
@@ -96,7 +94,7 @@ Raw data exports to Excel.
 **The report** (vector PDF, US Letter) contains:
 
 - a PASS / FAIL / INCOMPLETE verdict
-- part, serial, operator, date, instrument identity and open/short correction status
+- part number, test station, date, instrument identity and open/short correction status
 - a results table with conditions, limits and per-parameter results
 - **Lp vs frequency** and **Llk vs frequency**, one curve per test level
 - **Level dependence** of Lp and Llk at the spec frequency
@@ -210,7 +208,7 @@ lcr_studio/
   worker.py        background thread that owns the serial port
   engmath.py       SI formatting, impedance math
   theme.py         dark / light themes
-  flyback.py       flyback test: profile, guided steps, measurement job, pass/fail evaluation
+  flyback.py       flyback test: profile, Lp / Llk steps, measurement job, pass/fail evaluation
   report.py        one-page US Letter PDF report renderer
   panels/          one module per tab (measure, flyback, sweep, logger, console, controls)
   assets/          icon and bundled Barlow font

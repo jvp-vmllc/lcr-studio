@@ -70,21 +70,19 @@ theme.apply("light")
 shot("measure-light", w.measure)
 theme.apply("dark")
 
-# Flyback — full guided test on the simulated transformer
+# Flyback — Lp and Llk on the simulated transformer
 fb = w.flyback
 fb.set_profile(FlybackProfile(
-    part_number="FBT-EE25-12V", description="65 W flyback, 12 V / 5.4 A",
+    part_number="FBT-EE25-12V",
     primary=Winding("Primary", "1-3", 0.5),
-    secondaries=[Winding("12 V out", "7-9", 0.02), Winding("Aux", "4-5", 0.5)],
+    secondaries=[Winding("12 V out", "7-9"), Winding("Aux", "4-5")],
     lp_nom=620e-6, lp_tol=10, llk_max=15e-6, llk_pct_max=2.5))
-fb.serial.setText("SN-000123")
-fb.operator.setText("QA bench 2")
 w.tabs.setCurrentWidget(fb)
 for i in range(len(fb.steps)):
-    fb.step_table.setCurrentCell(i, 0)
+    fb.step_pick.setCurrentIndex(i)
     fb.run_selected()
     wait_until(lambda: fb.running_key is None, 180)
-fb.step_table.setCurrentCell(1, 0)
+fb.step_pick.setCurrentIndex(1)
 shot("flyback", fb)
 render_image(fb.profile(), fb.results, fb._meta(), dpi=110).save(str(OUT / "flyback-report.png"))
 print("saved flyback-report", flush=True)

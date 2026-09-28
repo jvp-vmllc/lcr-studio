@@ -1,4 +1,4 @@
-"""Flyback transformer test: profile, guided steps, measurement job and evaluation.
+"""Flyback transformer test: profile, Lp / Llk steps, measurement job and evaluation.
 
 Method (standard magnetics practice):
   * Lp  — primary inductance, every other winding open (magnetizing inductance).
@@ -32,7 +32,6 @@ class Winding:
 @dataclass
 class FlybackProfile:
     part_number: str = ""
-    description: str = ""
     primary: Winding = field(default_factory=lambda: Winding("Primary", "1-3"))
     secondaries: list[Winding] = field(default_factory=lambda: [Winding("Secondary", "7-9"), Winding("Aux", "4-5")])
     spec_freq: str = "10kHz"
@@ -47,7 +46,6 @@ class FlybackProfile:
     levels: list[str] = field(default_factory=lambda: list(LEVELS))
     settle: int = 2
     navg: int = 5
-    sec_full_matrix: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -69,7 +67,7 @@ class FlybackProfile:
 
 @dataclass
 class Step:
-    key: str                 # "lp", "llk", "sec0"...
+    key: str                 # "lp", "llk"
     title: str
     instruction: str
     fixture: str             # simulator fixture id
@@ -82,10 +80,11 @@ class Step:
 
 
 def build_steps(p: FlybackProfile) -> list[Step]:
+    """Primary inductance, then leakage inductance. Per-winding secondary steps are left out for now."""
     freqs, levels = p.matrix()
     pri = f"{p.primary.name}" + (f" (pins {p.primary.pins})" if p.primary.pins else "")
     others = ", ".join(w.name for w in p.secondaries) or "none"
-    steps = [
+    return [
         Step("lp", "Primary inductance Lp + DCR",
              f"Clip the meter to {pri}. Leave all other windings ({others}) open.",
              "PRI_OPEN", -1, [], p.lp_equ, freqs, levels, True),
@@ -93,13 +92,6 @@ def build_steps(p: FlybackProfile) -> list[Step]:
              f"Keep the meter on {pri}. Short every other winding ({others}) with short, heavy links.",
              "PRI_SHORT", -1, list(range(len(p.secondaries))), p.llk_equ, freqs, levels, False),
     ]
-    for i, w in enumerate(p.secondaries):
-        where = f"{w.name}" + (f" (pins {w.pins})" if w.pins else "")
-        steps.append(Step(f"sec{i}", f"{w.name}: inductance + DCR",
-                          f"Remove the shorts. Clip the meter to {where}; leave all other windings open.",
-                          f"SEC{i}", i, [], "SER",
-                          freqs if p.sec_full_matrix else [p.spec_freq], levels, True))
-    return steps
 
 
 def hz_label(f: str) -> str:
@@ -256,25 +248,8 @@ def evaluate(p: FlybackProfile, results: dict) -> tuple[list[dict], str]:
         else:
             add(f"{p.primary.name} DCR", "DC", fmt(dcr, "Ω"))
 
-    for i, w in enumerate(p.secondaries):
-        res = results.get(f"sec{i}")
-        pt = point(res, f, lv)
-        if not res:
-            add(f"{w.name}", "", "not measured", status="—")
-            continue
-        if pt:
-            add(f"{w.name} inductance", cond, fmt(pt["L"], "H"))
-            if lp and pt["L"] > 0:
-                add(f"Turns ratio {p.primary.name}:{w.name} (est.)", "√(Lp/Ls)", f"{math.sqrt(lp / pt['L']):.3f} : 1")
-        if res.get("dcr") is not None:
-            if w.dcr_max:
-                add(f"{w.name} DCR", "DC", fmt(res["dcr"], "Ω"), f"≤ {fmt(w.dcr_max, 'Ω', 4)}",
-                    "PASS" if res["dcr"] <= w.dcr_max else "FAIL")
-            else:
-                add(f"{w.name} DCR", "DC", fmt(res["dcr"], "Ω"))
-
     statuses = [r["status"] for r in rows]
-    required = ["lp", "llk"] + [f"sec{i}" for i in range(len(p.secondaries))]
+    required = ["lp", "llk"]
     complete = all(k in results and not results[k].get("aborted") for k in required)
     if "FAIL" in statuses:
         verdict = "FAIL"
