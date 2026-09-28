@@ -53,10 +53,13 @@ serial port), start LCR Studio, and it connects automatically.
 - Large readout with SI prefixes, overload (`OL`) detection and PASS/FAIL from the meter's comparator.
 - **Hold** and **Relative** (Δ and Δ% against a captured reference).
 - **Derived parameters**, calculated from every reading: |Z|, θ, Rs (ESR), Rp, Xs, Xp, Cs, Cp, Ls, Lp, D, Q.
-- Trend charts for primary and secondary values, a live histogram and statistics (mean, σ, σ %, min, max, p-p, rate).
-- Every meter setting in the sidebar: L / C / R / Z / DCR, D / Q / X / θ° / θ rad / ESR, series / parallel,
-  100 Hz – 100 kHz, 0.1 / 0.3 / 1.0 V, slow / medium / fast, auto or held range, continuous or single
-  trigger, keypad lock, reset. Changes made on the meter's own keys show up in the app within seconds.
+- A rolling trend chart for the primary and secondary values (the meter's tolerance window is shaded while
+  tolerance mode is on), a live histogram and statistics (mean, σ, σ %, min, max, p-p, rate).
+- Every meter setting in a strip above the readout: L / C / R / Z / DCR, D / Q / X / θ° / θ rad / ESR,
+  series / parallel model, 100 Hz – 100 kHz, 0.1 / 0.3 / 1.0 V, slow / medium / fast, auto or held range,
+  continuous or single trigger. Changes made on the meter's own keys show up in the app within seconds.
+- Port, baud rate, Connect and the open/short correction badges sit in the top bar, next to a **Meter** menu
+  for the keypad lock and settings reset.
 
 <table>
 <tr>
@@ -65,26 +68,29 @@ serial port), start LCR Studio, and it connects automatically.
 </tr>
 <tr>
 <td align="center"><sub>Dark theme</sub></td>
-<td align="center"><sub>Light theme, one click in the title bar</sub></td>
+<td align="center"><sub>Light theme, one click in the top bar</sub></td>
 </tr>
 </table>
 
 ### Flyback transformer test
 
 An inductance test for flyback (and other multi-winding) transformers, producing a **one-page US Letter PDF
-report** per unit. Pick the step from the drop-down, wire the part as the instruction says and press Run:
+report** per unit. Tick the steps to run and press **Run ticked steps**. A pop-up shows the progress of each
+step and, between steps, tells you how to rewire the part before continuing:
 
-1. **Primary inductance Lp:** primary connected, all other windings open. Measured over every selected
-   frequency × test level, plus the primary DC resistance.
-2. **Leakage inductance Llk:** primary connected, every other winding shorted.
+1. **Primary inductance:** meter on the primary, every other winding open.
+2. **Leakage inductance:** meter on the primary, every other winding shorted.
 
-From the measurements it derives the **leakage ratio, coupling coefficient k = √(1 − Llk/Lp), Q, ESR and Lp
-level dependence**. Lp nominal ± tolerance, Llk max, Llk/Lp max and primary DCR max are checked at the
-specification frequency and level. Profiles save as JSON so a production line can load a part in one click.
-Raw data exports to Excel. The report is identified by part number, test station (this computer's name)
-and date.
+Each step measures inductance and Q over every selected frequency × test level with its own circuit model,
+and each limit is checked at its own test frequency and level: **primary nominal ± tolerance**, **leakage
+maximum** and **leakage / primary maximum**. The results table adds the **coupling coefficient
+k = √(1 − Llk/Lp)**, the primary Q and its series (or parallel) resistance. The charts draw one curve per
+test level with the limits shown as a band and a line, switch to a log axis when a sweep spans more than a
+decade, and mark the test point with a labelled cross-hair. Profiles save as JSON so a production line can
+load a part in one click. Raw data exports to Excel with D, Q, phase and resistance for every point. The
+report is identified by part number, test station (this computer's name) and date.
 
-<img src="docs/images/flyback.png" alt="Flyback tab: step selector, live charts and pass/fail summary" width="100%">
+<img src="docs/images/flyback.png" alt="Flyback tab: specification, steps to run, live charts and pass/fail summary" width="100%">
 
 <table>
 <tr>
@@ -94,12 +100,12 @@ and date.
 **The report** (vector PDF, US Letter) contains:
 
 - a PASS / FAIL / INCOMPLETE verdict
-- part number, test station, date, instrument identity and open/short correction status
+- part number, test station, date, instrument identity and the test condition of each step
 - a results table with conditions, limits and per-parameter results
-- **Lp vs frequency** and **Llk vs frequency**, one curve per test level
-- **Level dependence** of Lp and Llk at the spec frequency
-- **Primary Q vs frequency**
-- the full Lp and Llk matrices (level × frequency)
+- **primary inductance** and **leakage inductance vs frequency**, one curve per test level, with the
+  test point marked
+- every measured point of each step: inductance, dissipation, quality factor, phase and
+  series resistance, with the test-condition row highlighted
 - signature lines for tester and reviewer
 
 </td>
@@ -208,9 +214,11 @@ lcr_studio/
   worker.py        background thread that owns the serial port
   engmath.py       SI formatting, impedance math
   theme.py         dark / light themes
-  flyback.py       flyback test: profile, Lp / Llk steps, measurement job, pass/fail evaluation
+  widgets.py       cards, badges, segmented buttons, unit fields, busy pop-up, chart helpers
+  flyback.py       flyback test: profile, primary / leakage steps, measurement job, pass/fail evaluation
   report.py        one-page US Letter PDF report renderer
-  panels/          one module per tab (measure, flyback, sweep, logger, console, controls)
+  panels/          one module per tab (measure, flyback, sweep, logger, console)
+                   and controls (connection bar, settings strip, Meter menu)
   assets/          icon and bundled Barlow font
 packaging/         PyInstaller build script, .desktop file, udev rule, icon
 scripts/           screenshot generator

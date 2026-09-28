@@ -185,27 +185,40 @@ def points_table(cv, x, y, w, title, result, equ, target=None):
     if not result or not result["rows"]:
         cv.text(x, y, w, 12, "not measured", 7, color=FAINT)
         return y + 12
-    cols = [("Level", 0.09, Qt.AlignLeft), ("Frequency", 0.14, Qt.AlignRight), ("Inductance", 0.18, Qt.AlignRight),
-            ("Dissipation", 0.14, Qt.AlignRight), ("Quality factor", 0.15, Qt.AlignRight), ("Phase", 0.10, Qt.AlignRight),
-            ("Series resistance" if equ == "SER" else "Parallel resistance", 0.20, Qt.AlignRight)]
+    names = ["Level", "Frequency", "Inductance", "Dissipation", "Quality factor", "Phase",
+             "Series resistance" if equ == "SER" else "Parallel resistance"]
+    aligns = [Qt.AlignLeft] + [Qt.AlignRight] * 6
+    rows = sorted(result["rows"], key=lambda r: (LEVELS.index(r["level"]), r["hz"]))
+    table = []
+    for row in rows:
+        d, theta, res = loss_figures(row, equ)
+        table.append([v_label(row["level"]), hz_label(row["freq"]), fmt(row["L"], "H"),
+                      f"{d:.4f}" if d is not None else "—", f"{row['Q']:.4g}" if row.get("Q") is not None else "—",
+                      f"{theta:.2f}°" if theta is not None else "—", fmt(res, "Ω") if res is not None else "—"])
+    # Column widths come from the text itself, so no header or value is clipped whatever font is installed;
+    # the header shrinks a step if the full names would not fit the table width.
+    cm = QFontMetricsF(cv.font(6.4, True), cv.p.device())
+    for hs in (5.8, 5.4, 5.0):
+        hm = QFontMetricsF(cv.font(hs, True), cv.p.device())
+        need = [max([hm.horizontalAdvance(n)] + [cm.horizontalAdvance(r[i]) for r in table]) / cv.s + 7
+                for i, n in enumerate(names)]
+        if sum(need) <= w:
+            break
+    widths = [n * w / sum(need) for n in need]
     cv.box(x, y, w, 11, fill="#eef2f8")
     cx = x
-    for name, frac, align in cols:
-        cv.text(cx + 3, y, w * frac - 6, 11, name, 5.8, True, MUTED, align | Qt.AlignVCenter)
-        cx += w * frac
+    for name, cw, align in zip(names, widths, aligns):
+        cv.text(cx + 3, y, cw - 6, 11, name, hs, True, MUTED, align | Qt.AlignVCenter)
+        cx += cw
     y += 11
-    for row in sorted(result["rows"], key=lambda r: (LEVELS.index(r["level"]), r["hz"])):
+    for row, cells in zip(rows, table):
         hit = target is not None and (row["freq"], row["level"]) == tuple(target)
         if hit:                                      # the point the limit is checked at
             cv.box(x, y, w, 10.5, fill="#dbe7ff")
-        d, theta, res = loss_figures(row, equ)
-        cells = [v_label(row["level"]), hz_label(row["freq"]), fmt(row["L"], "H"),
-                 f"{d:.4f}" if d is not None else "—", f"{row['Q']:.4g}" if row.get("Q") is not None else "—",
-                 f"{theta:.2f}°" if theta is not None else "—", fmt(res, "Ω") if res is not None else "—"]
         cx = x
-        for (_, frac, align), text in zip(cols, cells):
-            cv.text(cx + 3, y, w * frac - 6, 10.5, text, 6.4, hit, INK, align | Qt.AlignVCenter)
-            cx += w * frac
+        for text, cw, align in zip(cells, widths, aligns):
+            cv.text(cx + 3, y, cw - 6, 10.5, text, 6.4, hit, INK, align | Qt.AlignVCenter)
+            cx += cw
         cv.line(x, y + 10.5, x + w, y + 10.5, GRID, 0.4)
         y += 10.5
     return y
