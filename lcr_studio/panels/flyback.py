@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QF
 
 from .. import __version__
 from ..engmath import fmt
-from ..flyback import (MAX_SECONDARIES, FlybackProfile, Winding, build_steps, evaluate, hz_label, run_step, v_label)
+from ..flyback import FlybackProfile, build_steps, evaluate, hz_label, run_step, v_label
 from ..report import LEVEL_COLORS, default_meta, export_pdf, render_image
 from ..theme import theme
 from ..ut622e import FREQ_HZ, FREQUENCIES, LEVELS
@@ -120,40 +120,6 @@ class FlybackPanel(QWidget):
         unit.body.addLayout(row)
         col.addWidget(unit)
 
-        wind = Card("Windings")
-        g = QGridLayout()
-        self.pri_name = QLineEdit("Primary")
-        self.pri_pins = QLineEdit("1-3")
-        self.pri_pins.setMaximumWidth(64)
-        self.pri_pins.setPlaceholderText("pins")
-        self.pri_dcr = EngEdit("optional, e.g. 0.5", "Ω")
-        g.addWidget(field_label("Primary"), 0, 0)
-        g.addWidget(self.pri_name, 0, 1)
-        g.addWidget(self.pri_pins, 0, 2)
-        g.addWidget(field_label("DCR max"), 1, 0)
-        g.addWidget(self.pri_dcr, 1, 1, 1, 2)
-        wind.body.addLayout(g)
-        wind.body.addWidget(field_label("Other windings"))
-        self.sec_table = QTableWidget(0, 2)
-        self.sec_table.setHorizontalHeaderLabels(["Name", "Pins"])
-        self.sec_table.verticalHeader().hide()
-        hh = self.sec_table.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.Stretch)
-        hh.setSectionResizeMode(1, QHeaderView.Fixed)
-        hh.resizeSection(1, 72)
-        self.sec_table.setFixedHeight(140)
-        self.sec_table.itemChanged.connect(lambda _i: self._profile_changed())
-        wind.body.addWidget(self.sec_table)
-        row = QHBoxLayout()
-        add = QPushButton("+ Add winding")
-        add.clicked.connect(lambda: self._add_secondary(Winding(f"Winding {self.sec_table.rowCount() + 1}")))
-        rm = QPushButton("Remove")
-        rm.clicked.connect(self._remove_secondary)
-        row.addWidget(add)
-        row.addWidget(rm)
-        wind.body.addLayout(row)
-        col.addWidget(wind)
-
         spec = Card("Specification")
         g = QGridLayout()
         g.setVerticalSpacing(6)
@@ -170,11 +136,13 @@ class FlybackPanel(QWidget):
         self.lp_tol.setValue(10)
         self.llk_max = EngEdit("e.g. 15u", "H")
         self.llk_pct = EngEdit("e.g. 2.5 (optional)")
+        self.dcr_max = EngEdit("e.g. 0.5 (optional)", "Ω")
         self.lp_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
         self.llk_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
         rows = [("Test frequency", self.spec_freq), ("Test level", self.spec_level), ("Lp nominal", self.lp_nom),
                 ("Lp tolerance ±", self.lp_tol), ("Llk max", self.llk_max), ("Llk / Lp max (%)", self.llk_pct),
-                ("Lp circuit model", self.lp_equ), ("Llk circuit model", self.llk_equ)]
+                ("Primary DCR max", self.dcr_max), ("Lp circuit model", self.lp_equ),
+                ("Llk circuit model", self.llk_equ)]
         for i, (lab, wdg) in enumerate(rows):
             g.addWidget(field_label(lab), i, 0)
             g.addWidget(wdg, i, 1)
@@ -216,9 +184,8 @@ class FlybackPanel(QWidget):
         col.addWidget(mat)
         col.addStretch(1)
 
-        for w in (self.part, self.pri_name, self.pri_pins):
-            w.textChanged.connect(lambda _t: self._profile_changed())
-        for w in (self.pri_dcr, self.lp_nom, self.llk_max, self.llk_pct):
+        self.part.textChanged.connect(lambda _t: self._profile_changed())
+        for w in (self.lp_nom, self.llk_max, self.llk_pct, self.dcr_max):
             w.valueChanged.connect(lambda _v: self._profile_changed())
         for w in (self.spec_freq, self.spec_level):
             w.currentIndexChanged.connect(lambda _i: self._profile_changed())
@@ -316,17 +283,11 @@ class FlybackPanel(QWidget):
 
     # ======================================================== profile I/O ==
     def profile(self) -> FlybackProfile:
-        secs = []
-        for r in range(self.sec_table.rowCount()):
-            name = (self.sec_table.item(r, 0).text() if self.sec_table.item(r, 0) else "").strip() or f"Winding {r + 1}"
-            pins = self.sec_table.item(r, 1).text().strip() if self.sec_table.item(r, 1) else ""
-            secs.append(Winding(name, pins))
         return FlybackProfile(
             part_number=self.part.text().strip(),
-            primary=Winding(self.pri_name.text().strip() or "Primary", self.pri_pins.text().strip(), self.pri_dcr.value()),
-            secondaries=secs, spec_freq=self.spec_freq.currentData(), spec_level=self.spec_level.currentData(),
+            spec_freq=self.spec_freq.currentData(), spec_level=self.spec_level.currentData(),
             lp_nom=self.lp_nom.value(), lp_tol=self.lp_tol.value(), llk_max=self.llk_max.value(),
-            llk_pct_max=self.llk_pct.value(), lp_equ=self.lp_equ.value() or "SER", llk_equ=self.llk_equ.value() or "SER",
+            llk_pct_max=self.llk_pct.value(), dcr_max=self.dcr_max.value(), lp_equ=self.lp_equ.value() or "SER", llk_equ=self.llk_equ.value() or "SER",
             freqs=[f for f, cb in self.freq_boxes.items() if cb.isChecked()],
             levels=[lv for lv, cb in self.level_boxes.items() if cb.isChecked()],
             settle=self.settle.value(), navg=self.navg.value())
@@ -335,18 +296,13 @@ class FlybackPanel(QWidget):
         self._loading = True
         try:
             self.part.setText(p.part_number)
-            self.pri_name.setText(p.primary.name)
-            self.pri_pins.setText(p.primary.pins)
-            self.pri_dcr.set_value(p.primary.dcr_max, 4)
-            self.sec_table.setRowCount(0)
-            for w in p.secondaries:
-                self._add_secondary(w)
             self.spec_freq.setCurrentIndex(max(0, self.spec_freq.findData(p.spec_freq)))
             self.spec_level.setCurrentIndex(max(0, self.spec_level.findData(p.spec_level)))
             self.lp_nom.set_value(p.lp_nom, 4)
             self.lp_tol.setValue(p.lp_tol)
             self.llk_max.set_value(p.llk_max, 4)
             self.llk_pct.setText("" if p.llk_pct_max is None else f"{p.llk_pct_max:g}")
+            self.dcr_max.set_value(p.dcr_max, 4)
             self.lp_equ.set_value(p.lp_equ)
             self.llk_equ.set_value(p.llk_equ)
             for f, cb in self.freq_boxes.items():
@@ -358,25 +314,6 @@ class FlybackPanel(QWidget):
         finally:
             self._loading = False
         self._profile_changed()
-
-    def _add_secondary(self, w: Winding):
-        if self.sec_table.rowCount() >= MAX_SECONDARIES:
-            return
-        self.sec_table.blockSignals(True)
-        r = self.sec_table.rowCount()
-        self.sec_table.insertRow(r)
-        self.sec_table.setItem(r, 0, QTableWidgetItem(w.name))
-        self.sec_table.setItem(r, 1, QTableWidgetItem(w.pins))
-        self.sec_table.blockSignals(False)
-        self._profile_changed()
-
-    def _remove_secondary(self):
-        r = self.sec_table.currentRow()
-        if r < 0:
-            r = self.sec_table.rowCount() - 1
-        if r >= 0:
-            self.sec_table.removeRow(r)
-            self._profile_changed()
 
     def _profile_changed(self):
         if self._loading:

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from lcr_studio.app import MainWindow, app_icon, load_fonts  # noqa: E402
-from lcr_studio.flyback import FlybackProfile, Winding  # noqa: E402
+from lcr_studio.flyback import FlybackProfile  # noqa: E402
 from lcr_studio.report import render_image  # noqa: E402
 from lcr_studio.theme import theme  # noqa: E402
 
@@ -72,11 +72,8 @@ theme.apply("dark")
 
 # Flyback — Lp and Llk on the simulated transformer
 fb = w.flyback
-fb.set_profile(FlybackProfile(
-    part_number="FBT-EE25-12V",
-    primary=Winding("Primary", "1-3", 0.5),
-    secondaries=[Winding("12 V out", "7-9"), Winding("Aux", "4-5")],
-    lp_nom=620e-6, lp_tol=10, llk_max=15e-6, llk_pct_max=2.5))
+fb.set_profile(FlybackProfile(part_number="FBT-EE25-12V", dcr_max=0.5,
+                              lp_nom=620e-6, lp_tol=10, llk_max=15e-6, llk_pct_max=2.5))
 w.tabs.setCurrentWidget(fb)
 for i in range(len(fb.steps)):
     fb.step_pick.setCurrentIndex(i)

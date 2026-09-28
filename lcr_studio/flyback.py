@@ -19,27 +19,16 @@ from dataclasses import asdict, dataclass, field
 from .engmath import fmt
 from .ut622e import FREQ_HZ, FREQUENCIES, LEVELS, MeterError
 
-MAX_SECONDARIES = 4
-
-
-@dataclass
-class Winding:
-    name: str
-    pins: str = ""
-    dcr_max: float | None = None
-
-
 @dataclass
 class FlybackProfile:
     part_number: str = ""
-    primary: Winding = field(default_factory=lambda: Winding("Primary", "1-3"))
-    secondaries: list[Winding] = field(default_factory=lambda: [Winding("Secondary", "7-9"), Winding("Aux", "4-5")])
     spec_freq: str = "10kHz"
     spec_level: str = "1.0V"
     lp_nom: float | None = None
     lp_tol: float = 10.0
     llk_max: float | None = None
     llk_pct_max: float | None = None
+    dcr_max: float | None = None
     lp_equ: str = "SER"
     llk_equ: str = "SER"
     freqs: list[str] = field(default_factory=lambda: list(FREQUENCIES))
@@ -53,8 +42,8 @@ class FlybackProfile:
     @classmethod
     def from_dict(cls, d: dict) -> "FlybackProfile":
         d = dict(d)
-        d["primary"] = Winding(**d.get("primary", {"name": "Primary"}))
-        d["secondaries"] = [Winding(**w) for w in d.get("secondaries", [])][:MAX_SECONDARIES]
+        if "dcr_max" not in d and isinstance(d.get("primary"), dict):     # profiles saved before v2
+            d["dcr_max"] = d["primary"].get("dcr_max")
         known = cls.__dataclass_fields__.keys()
         return cls(**{k: v for k, v in d.items() if k in known})
 
@@ -71,8 +60,6 @@ class Step:
     title: str
     instruction: str
     fixture: str             # simulator fixture id
-    measured: int            # -1 = primary, i = secondary i
-    shorted: list[int]
     equ: str
     freqs: list[str]
     levels: list[str]
@@ -82,15 +69,13 @@ class Step:
 def build_steps(p: FlybackProfile) -> list[Step]:
     """Primary inductance, then leakage inductance. Per-winding secondary steps are left out for now."""
     freqs, levels = p.matrix()
-    pri = f"{p.primary.name}" + (f" (pins {p.primary.pins})" if p.primary.pins else "")
-    others = ", ".join(w.name for w in p.secondaries) or "none"
     return [
         Step("lp", "Primary inductance Lp + DCR",
-             f"Clip the meter to {pri}. Leave all other windings ({others}) open.",
-             "PRI_OPEN", -1, [], p.lp_equ, freqs, levels, True),
+             "Connect the meter to the primary winding. Leave every other winding open.",
+             "PRI_OPEN", p.lp_equ, freqs, levels, True),
         Step("llk", "Leakage inductance Llk",
-             f"Keep the meter on {pri}. Short all other windings ({others}).",
-             "PRI_SHORT", -1, list(range(len(p.secondaries))), p.llk_equ, freqs, levels, False),
+             "Keep the meter on the primary winding. Short every other winding.",
+             "PRI_SHORT", p.llk_equ, freqs, levels, False),
     ]
 
 
@@ -241,11 +226,11 @@ def evaluate(p: FlybackProfile, results: dict) -> tuple[list[dict], str]:
 
     if lp_res and lp_res.get("dcr") is not None:
         dcr = lp_res["dcr"]
-        if p.primary.dcr_max:
-            add(f"{p.primary.name} DCR", "DC", fmt(dcr, "Ω"), f"≤ {fmt(p.primary.dcr_max, 'Ω', 4)}",
-                "PASS" if dcr <= p.primary.dcr_max else "FAIL")
+        if p.dcr_max:
+            add("Primary DCR", "DC", fmt(dcr, "Ω"), f"≤ {fmt(p.dcr_max, 'Ω', 4)}",
+                "PASS" if dcr <= p.dcr_max else "FAIL")
         else:
-            add(f"{p.primary.name} DCR", "DC", fmt(dcr, "Ω"))
+            add("Primary DCR", "DC", fmt(dcr, "Ω"))
 
     statuses = [r["status"] for r in rows]
     required = ["lp", "llk"]

@@ -4,7 +4,7 @@ from dataclasses import replace
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from lcr_studio.flyback import FlybackProfile, Winding, build_steps, evaluate, run_step
+from lcr_studio.flyback import FlybackProfile, build_steps, evaluate, run_step
 from lcr_studio.report import default_meta, export_pdf, render_image
 from lcr_studio.ut622e import SimulatedUT622E
 
@@ -28,8 +28,7 @@ def measured():
     meter.set_speed("FAST")
     meter.set_frequency("1kHz")
     meter.set_primary("C")
-    p = FlybackProfile(part_number="T1", primary=Winding("Primary", "1-3", 0.5),
-                       secondaries=[Winding("12V", "7-9", 0.02), Winding("Aux", "4-5", 0.1)],
+    p = FlybackProfile(part_number="T1", dcr_max=0.5,
                        lp_nom=620e-6, lp_tol=10, llk_max=15e-6, llk_pct_max=2.5, settle=0, navg=1,
                        freqs=["1kHz", "10kHz"], levels=["0.1V", "1.0V"])
     results = {}
@@ -42,8 +41,14 @@ def test_steps_are_primary_then_leakage(measured):
     _, p, _ = measured
     keys = [s.key for s in build_steps(p)]
     assert keys == ["lp", "llk"]
-    llk = build_steps(p)[1]
-    assert llk.shorted == [0, 1] and llk.measured == -1
+    assert [s.fixture for s in build_steps(p)] == ["PRI_OPEN", "PRI_SHORT"]
+
+
+def test_profile_loads_pre_v2_json():
+    old = {"part_number": "X", "description": "gone", "primary": {"name": "Primary", "pins": "1-3", "dcr_max": 0.4},
+           "secondaries": [{"name": "S", "pins": "7-9"}], "lp_nom": 1e-3}
+    p = FlybackProfile.from_dict(old)
+    assert (p.part_number, p.dcr_max, p.lp_nom) == ("X", 0.4, 1e-3)
 
 
 def test_measurements_and_meter_restored(measured):
