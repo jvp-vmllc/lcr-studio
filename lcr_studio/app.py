@@ -16,7 +16,6 @@ from .panels.controls import ControlPanel
 from .panels.flyback import FlybackPanel
 from .panels.logger import LogPanel
 from .panels.measure import MeasurePanel
-from .panels.sorting import MatchingPanel, SortingPanel
 from .panels.sweep import SweepPanel
 from .panels.tools import ToolsPanel
 from .theme import theme
@@ -66,14 +65,11 @@ class MainWindow(QMainWindow):
         self.measure = MeasurePanel()
         self.flyback = FlybackPanel(self.worker, self.settings)
         self.sweep = SweepPanel(self.worker)
-        self.sorting = SortingPanel(self.worker)
-        self.matching = MatchingPanel()
         self.log = LogPanel()
         self.tools = ToolsPanel()
         self.console = ConsolePanel(self.worker)
-        for w, name in [(self.measure, "Measure"), (self.flyback, "Flyback"), (self.sweep, "Sweep"), (self.sorting, "Sorting"),
-                        (self.matching, "Matching"), (self.log, "Data log"), (self.tools, "Tools"),
-                        (self.console, "Console")]:
+        for w, name in [(self.measure, "Measure"), (self.flyback, "Flyback"), (self.sweep, "Sweep"),
+                        (self.log, "Data log"), (self.tools, "Tools"), (self.console, "Console")]:
             self.tabs.addTab(w, name)
         body.addWidget(self.tabs, 1)
         root.addLayout(body, 1)
@@ -147,7 +143,7 @@ class MainWindow(QMainWindow):
         self.theme_btn.setText("☀" if theme.name == "dark" else "☾")
 
     def _no_focus_buttons(self):
-        # Keyboard shortcuts (Space, H, R, S, Enter) should never be swallowed by a focused button.
+        # Keyboard shortcuts (Space, H, R, S) should never be swallowed by a focused button.
         for b in self.findChildren(QAbstractButton):
             b.setFocusPolicy(Qt.NoFocus)
 
@@ -183,7 +179,6 @@ class MainWindow(QMainWindow):
         self.controls.set_connected(True, idn)
         self.sweep.set_connected(True)
         self.flyback.set_connected(True, idn)
-        self.sorting.set_connected(True)
         model = idn.split(",")[1] if "," in idn else "meter"
         self.conn_badge.setText(f"● {model} · {'DEMO' if self.port_name == DEMO_PORT else self.port_name}")
         self.conn_badge.set_kind("good")
@@ -193,7 +188,6 @@ class MainWindow(QMainWindow):
         self.controls.set_connected(False)
         self.sweep.set_connected(False)
         self.flyback.set_connected(False)
-        self.sorting.set_connected(False)
         self.conn_badge.setText("DISCONNECTED")
         self.conn_badge.set_kind("bad" if reason else "")
         if reason:
@@ -204,12 +198,9 @@ class MainWindow(QMainWindow):
         self.measure.apply_settings(st)
         self.sweep.apply_settings(st)
         self.flyback.apply_settings(st)
-        self.sorting.apply_settings(st)
 
     def _on_reading(self, r):
         self.measure.add_reading(r)
-        self.sorting.on_reading(r)
-        self.matching.on_reading(r)
         self.log.on_reading(r)
         self.tools.on_reading(r)
 
@@ -241,8 +232,6 @@ class MainWindow(QMainWindow):
             if self.measure.last:
                 self.log.add(self.measure.last)
                 self._msg("Snapshot added to data log", 2000)
-        elif k in (Qt.Key_Return, Qt.Key_Enter) and self.tabs.currentWidget() is self.matching:
-            self.matching.capture()
         else:
             return super().keyPressEvent(ev)
 

@@ -1,7 +1,7 @@
 [project]
 name = "lcr-studio"
 dynamic = ["version"]
-description = "Desktop application for the UNI-T UT622E LCR meter: live readout, sweeps, sorting, matching, logging and engineering tools."
+description = "Desktop application for the UNI-T UT622E LCR meter: live readout, sweeps, logging and engineering tools."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

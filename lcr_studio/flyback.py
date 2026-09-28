@@ -118,7 +118,8 @@ def run_step(meter, ctx, step: Step, settle: int, navg: int) -> dict:
     """Worker-thread job: measure L and Q over the step's matrix (+ DCR), then restore the meter."""
     st0 = meter.read_settings(full=True)
     if st0.get("comp"):
-        raise ValueError("Turn off the meter's tolerance mode first (Sorting tab) — it blocks function changes.")
+        raise ValueError("Turn off the meter's tolerance mode first (TOL key on the meter, or send COMP OFF from the "
+                         "Console tab) — it blocks function changes.")
     if hasattr(meter, "set_fixture"):
         meter.set_fixture(step.fixture)          # simulator only
     get = meter.fetch if st0.get("trigger") == "AUTO" else meter.trigger_fetch

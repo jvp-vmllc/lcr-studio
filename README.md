@@ -6,7 +6,7 @@
 
 **A modern desktop application for the UNI-T UT622E handheld LCR meter.**<br>
 Live readout, **flyback transformer testing with one-page PDF reports**, equivalent-circuit analysis,<br>
-frequency sweeps, component sorting & matching, data logging and engineering calculators, all over the meter's USB cable.
+frequency sweeps, data logging and engineering calculators, all over the meter's USB cable.
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-.deb-FCC624?logo=linux&logoColor=black)
@@ -27,7 +27,7 @@ frequency sweeps, component sorting & matching, data logging and engineering cal
 
 The vendor software does the basics and little else. LCR Studio exposes **every remote function of the
 meter** and adds the engineering tools you would normally reach for a spreadsheet for: series/parallel
-conversion, ESR/Q/D/θ derivation, sweeps, statistics, tolerance binning and part matching.
+conversion, ESR/Q/D/θ derivation, sweeps and statistics.
 
 No NI-VISA, no drivers beyond the standard CH340 USB-serial driver.
 
@@ -116,22 +116,6 @@ exported to Excel, CSV or PNG. The meter's original settings are restored afterw
 
 <img src="docs/images/sweep.png" alt="Sweep tab comparing series and parallel models" width="100%">
 
-### Component sorting
-
-Configure the meter's **hardware comparator** (nominal, tolerance, beep, LED, counter), or use the
-software **binning** with as many ±% bins as you like. The app detects when a part is inserted, waits
-for the reading to settle, counts it once and re-arms when it is removed, so you just keep feeding parts.
-
-<img src="docs/images/sorting.png" alt="Sorting tab with bin counts" width="100%">
-
-### Component matching
-
-Capture parts manually (<kbd>Enter</kbd>) or automatically, then let LCR Studio find the tightest sets of
-*N* parts within a primary (and optional secondary, e.g. ESR) spread. Useful for filters,
-bridges and balanced circuits.
-
-<img src="docs/images/matching.png" alt="Matching tab with colour-coded matched sets" width="100%">
-
 ### Data logging
 
 Record every reading, one per interval, or snapshots only (<kbd>S</kbd>). Each row carries a timestamp,
@@ -162,7 +146,6 @@ cover. The full command set is documented in [PROTOCOL.md](PROTOCOL.md).
 | <kbd>H</kbd> | Hold the readout |
 | <kbd>R</kbd> | Relative mode on/off |
 | <kbd>S</kbd> | Snapshot the current reading into the data log |
-| <kbd>Enter</kbd> | Capture a part (Matching tab) |
 
 ## Supported hardware
 
@@ -237,7 +220,7 @@ lcr_studio/
   theme.py         dark / light themes
   flyback.py       flyback test: profile, guided steps, measurement job, pass/fail evaluation
   report.py        one-page US Letter PDF report renderer
-  panels/          one module per tab (measure, flyback, sweep, sorting, logger, tools, console, controls)
+  panels/          one module per tab (measure, flyback, sweep, logger, tools, console, controls)
   assets/          icon and bundled Barlow font
 packaging/         PyInstaller build script, .desktop file, udev rule, icon
 scripts/           screenshot generator

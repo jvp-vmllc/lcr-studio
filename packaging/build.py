@@ -95,7 +95,7 @@ Maintainer: {os.environ.get("DEB_MAINTAINER", "LCR Studio <lcr-studio@users.nore
 Homepage: {os.environ.get("DEB_HOMEPAGE", "https://github.com/jvrpapa05/lcr-studio")}
 Description: Desktop application for the UNI-T UT622E LCR meter
  Live readout with derived equivalent-circuit parameters, frequency/level
- sweeps, component sorting and matching, data logging with Excel export,
+ sweeps, data logging with Excel export,
  engineering calculators and a raw SCPI console.
 """)
     for script, body in {

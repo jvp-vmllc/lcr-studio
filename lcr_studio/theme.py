@@ -48,7 +48,6 @@ QLabel#MidUnit {{ font-family: {num}; font-size: 16pt; color: {muted}; }}
 QLabel#MidType {{ font-family: {num}; font-size: 16pt; color: {accent}; font-weight: 600; }}
 QLabel#StatValue {{ font-family: {num}; font-size: 13pt; }}
 QLabel#DerivedValue {{ font-family: {num}; font-size: 12pt; }}
-QLabel#BinText {{ font-family: {num}; font-size: 54pt; font-weight: 600; }}
 
 QLabel#Badge {{ background: {surface2}; border: 1px solid {border}; border-radius: 9px;
                padding: 2px 9px; color: {muted}; font-size: 8.5pt; font-weight: 600; }}
