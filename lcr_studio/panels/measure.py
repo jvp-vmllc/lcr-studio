@@ -15,6 +15,7 @@ from ..theme import SERIES, theme
 from ..ut622e import FREQ_HZ, RANGES, SECONDARY_LABEL, Reading
 from ..widgets import (Badge, Card, RollAxis, SmoothRange, field_label, make_plot, muted, range_with_limits,
                        watch_manual_zoom)
+from .controls import MeterSettings
 
 
 def fmt_secondary(stype, v):
@@ -51,7 +52,7 @@ MAX_POINTS = 200_000
 class MeasurePanel(QWidget):
     snapshot = Signal(object)
 
-    def __init__(self, parent=None):
+    def __init__(self, worker, parent=None):
         super().__init__(parent)
         self.last: Reading | None = None
         self.ref: float | None = None
@@ -68,8 +69,10 @@ class MeasurePanel(QWidget):
         self._mean_target = None
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(6, 12, 12, 12)
+        root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
+        self.meter = MeterSettings(worker)          # the meter's settings live with the live readout
+        root.addWidget(self.meter)
         split = QSplitter(Qt.Vertical)
         split.setChildrenCollapsible(False)
         root.addWidget(split)
@@ -82,7 +85,7 @@ class MeasurePanel(QWidget):
         top_l.addWidget(self._build_derived(), 2)
         split.addWidget(top)
         split.addWidget(self._build_trend())
-        split.setSizes([330, 420])
+        split.setSizes([290, 430])
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._redraw)
@@ -231,7 +234,7 @@ class MeasurePanel(QWidget):
 
         side = QVBoxLayout()
         self.hplot = make_plot("Count", "", "Primary", "")
-        self.hplot.setFixedWidth(270)
+        self.hplot.setFixedWidth(340)
         self.hist = pg.BarGraphItem(x=[], height=[], width=1)
         self.hplot.addItem(self.hist)
         self.ease = {"p": SmoothRange(self.pplot), "s": SmoothRange(self.splot),
@@ -245,8 +248,8 @@ class MeasurePanel(QWidget):
             val = QLabel("—")
             val.setObjectName("StatValue")
             val.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            grid.addWidget(lab, (i // 2) * 2, i % 2)
-            grid.addWidget(val, (i // 2) * 2 + 1, i % 2)
+            grid.addWidget(lab, (i // 4) * 2, i % 4)
+            grid.addWidget(val, (i // 4) * 2 + 1, i % 4)
             self.stats[k] = val
         side.addLayout(grid)
         body.addLayout(side)

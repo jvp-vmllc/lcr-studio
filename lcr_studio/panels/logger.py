@@ -70,7 +70,7 @@ class LogPanel(QWidget):
         self._last_rec = 0.0
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(6, 12, 12, 12)
+        root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
         ctl = Card("Recorder")
         row = QHBoxLayout()

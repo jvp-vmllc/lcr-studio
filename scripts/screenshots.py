@@ -59,7 +59,7 @@ def meter(fn):
     pump(0.5)
 
 
-wait_until(lambda: w.controls.is_connected)
+wait_until(lambda: w.connection.is_connected)
 meter(lambda m: m.set_speed("FAST"))
 
 # Measure — dark and light

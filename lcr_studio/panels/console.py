@@ -29,7 +29,7 @@ class ConsolePanel(QWidget):
         self.history = []
         self.hpos = 0
         root = QHBoxLayout(self)
-        root.setContentsMargins(6, 12, 12, 12)
+        root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
 
         term = Card("SCPI terminal")

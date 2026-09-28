@@ -26,7 +26,7 @@ def test_main_window_streams_demo_readings(tmp_path):
         time.sleep(0.02)
     try:
         assert len(readings) >= 3
-        assert win.controls.is_connected
+        assert win.connection.is_connected
         assert win.measure.pvalue.text() not in ("", "—")
         theme.apply("light")          # theme switch must not raise
         for i in range(win.tabs.count()):

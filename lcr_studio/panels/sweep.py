@@ -89,7 +89,7 @@ class SweepPanel(QWidget):
         self._anim.timeout.connect(self._redraw)
 
         root = QHBoxLayout(self)
-        root.setContentsMargins(6, 12, 12, 12)
+        root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
 
         # ---------------- configuration column

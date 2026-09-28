@@ -76,7 +76,7 @@ class FlybackPanel(QWidget):
         self._anim.timeout.connect(self._refresh_results)
 
         root = QHBoxLayout(self)
-        root.setContentsMargins(6, 12, 12, 12)
+        root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
         root.addWidget(self._build_setup())
         split = QSplitter(Qt.Vertical)

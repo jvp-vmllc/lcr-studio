@@ -67,6 +67,14 @@ QPushButton#Accent:hover {{ background: {accent_hover}; }}
 QPushButton#Danger:hover {{ border-color: {bad}; color: {bad}; }}
 QPushButton#Seg {{ padding: 5px 4px; border-radius: 6px; }}
 QPushButton#Icon {{ padding: 4px 8px; }}
+QToolButton {{ background: {surface2}; border: 1px solid {border}; border-radius: 7px; padding: 5px 12px; }}
+QToolButton:hover {{ border-color: {accent}; }}
+QToolButton:disabled {{ color: {muted}; border-color: {surface2}; }}
+QToolButton::menu-indicator {{ image: none; width: 0; }}
+QMenu {{ background: {surface2}; border: 1px solid {border}; border-radius: 8px; padding: 6px; }}
+QMenu::item {{ padding: 6px 22px; border-radius: 5px; }}
+QMenu::item:selected {{ background: {accent}; color: {on_accent}; }}
+QMenu::separator {{ height: 1px; background: {border}; margin: 4px 6px; }}
 
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit {{
     background: {surface2}; border: 1px solid {border}; border-radius: 7px; padding: 4px 7px;

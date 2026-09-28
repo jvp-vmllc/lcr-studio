@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QAbstractSpinBox, QComboBox, QPlainTextEdit
 
 from . import __version__
 from .panels.console import ConsolePanel
-from .panels.controls import ControlPanel
+from .panels.controls import ConnectionBar, MeterMenu
 from .panels.flyback import FlybackPanel
 from .panels.logger import LogPanel
 from .panels.measure import MeasurePanel
@@ -57,11 +57,9 @@ class MainWindow(QMainWindow):
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
-        self.controls = ControlPanel(self.worker)
-        body.addWidget(self.controls)
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
-        self.measure = MeasurePanel()
+        self.measure = MeasurePanel(self.worker)
         self.flyback = FlybackPanel(self.worker, self.settings)
         self.sweep = SweepPanel(self.worker)
         self.log = LogPanel()
@@ -102,11 +100,16 @@ class MainWindow(QMainWindow):
         lay.addSpacing(6)
         lay.addWidget(sub)
         lay.addStretch(1)
+        self.connection = ConnectionBar()
+        lay.addWidget(self.connection)
+        lay.addSpacing(12)
         self.rec_badge = Badge("● REC", "bad")
         self.rec_badge.hide()
         self.conn_badge = Badge("DISCONNECTED")
         lay.addWidget(self.rec_badge)
         lay.addWidget(self.conn_badge)
+        self.meter_menu = MeterMenu(self.worker)
+        lay.addWidget(self.meter_menu)
         self.theme_btn = QPushButton()
         self.theme_btn.setObjectName("Icon")
         self.theme_btn.setToolTip("Switch light / dark theme")
@@ -116,8 +119,8 @@ class MainWindow(QMainWindow):
 
     def _wire(self):
         w = self.worker
-        self.controls.connectRequested.connect(self._connect)
-        self.controls.disconnectRequested.connect(w.close_port)
+        self.connection.connectRequested.connect(self._connect)
+        self.connection.disconnectRequested.connect(w.close_port)
         w.connected.connect(self._on_connected)
         w.disconnected.connect(self._on_disconnected)
         w.settingsChanged.connect(self._on_settings)
@@ -160,21 +163,23 @@ class MainWindow(QMainWindow):
             target = DEMO_PORT
         else:
             target = saved if saved in devs else next((p[0] for p in ports if p[2]), None)
-        if target and not self.controls.is_connected:
-            self.controls.select(target, baud)
+        if target and not self.connection.is_connected:
+            self.connection.select(target, baud)
             self._connect(target, baud)
 
     def _connect(self, port, baud):
         self.port_name = port
         self.conn_badge.setText(f"CONNECTING {port}…")
         self.conn_badge.set_kind("warn")
-        self.controls.connect_btn.setEnabled(False)
+        self.connection.connect_btn.setEnabled(False)
         self.worker.open_port(port, baud)
 
     def _on_connected(self, idn):
         self.settings.setValue("port", self.port_name)
-        self.settings.setValue("baud", self.controls.baud.currentData())
-        self.controls.set_connected(True, idn)
+        self.settings.setValue("baud", self.connection.baud.currentData())
+        self.connection.set_connected(True, idn)
+        self.measure.meter.set_connected(True)
+        self.meter_menu.set_connected(True)
         self.sweep.set_connected(True)
         self.flyback.set_connected(True, idn)
         model = idn.split(",")[1] if "," in idn else "meter"
@@ -183,7 +188,9 @@ class MainWindow(QMainWindow):
         self._msg(f"Connected: {idn}")
 
     def _on_disconnected(self, reason):
-        self.controls.set_connected(False)
+        self.connection.set_connected(False)
+        self.measure.meter.set_connected(False)
+        self.meter_menu.set_connected(False)
         self.sweep.set_connected(False)
         self.flyback.set_connected(False)
         self.conn_badge.setText("DISCONNECTED")
@@ -192,7 +199,8 @@ class MainWindow(QMainWindow):
             self._msg(reason, 0)
 
     def _on_settings(self, st):
-        self.controls.apply_settings(st)
+        self.connection.apply_settings(st)
+        self.measure.meter.apply_settings(st)
         self.measure.apply_settings(st)
         self.sweep.apply_settings(st)
         self.flyback.apply_settings(st)
