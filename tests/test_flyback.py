@@ -54,7 +54,7 @@ def test_profile_loads_pre_v2_json():
 def test_measurements_and_meter_restored(measured):
     meter, p, results = measured
     lp = results["lp"]
-    assert len(lp["rows"]) == 4 and lp["dcr"] == pytest.approx(0.42, rel=0.01)
+    assert len(lp["rows"]) == 4
     assert all(600e-6 < r["L"] < 660e-6 for r in lp["rows"])
     assert all(9e-6 < r["L"] < 9.5e-6 for r in results["llk"]["rows"])
     st = meter.read_settings(full=False)
@@ -68,7 +68,6 @@ def test_evaluation_passes_and_fails(measured):
     status = {r["param"]: r["status"] for r in rows}
     assert status["Primary inductance Lp"] == "PASS"
     assert status["Leakage inductance Llk"] == "PASS"
-    assert status["Primary DCR"] == "INFO"                  # measured, no limit
     assert not any(r["param"].startswith(("12V", "Aux", "Turns ratio")) for r in rows)   # no secondary rows
     k = next(r for r in rows if r["param"] == "Coupling coefficient k")
     assert 0.99 < float(k["value"]) < 1.0

@@ -42,13 +42,14 @@ def test_main_window_streams_demo_readings(tmp_path):
         fb = win.flyback                             # a flyback step shows the busy pop-up, then closes it
         fb.set_profile(FlybackProfile(part_number="T", settle=0, navg=1, freqs=["1kHz"], levels=["0.3V"],
                                       spec_freq="1kHz", spec_level="0.3V"))
-        assert not fb.run_btn.isEnabled()            # no limits filled in: Run step is disabled
-        fb.run_selected()
+        assert fb.run_btn.isEnabled() and fb.lp_nom.property("invalid")   # empty limits are outlined in red
+        fb.run_selected()                                                  # Run step refuses and warns
         assert fb.busy is None and fb.running_key is None
+        assert fb.spec_hint.text().startswith("⚠")
         fb.set_profile(FlybackProfile(part_number="T", settle=0, navg=1, freqs=["1kHz"], levels=["0.3V"],
                                       spec_freq="1kHz", spec_level="0.3V", lp_nom=620e-6, llk_max=15e-6,
                                       llk_pct_max=2.5))
-        assert fb.run_btn.isEnabled()
+        assert fb.run_btn.isEnabled() and not fb.lp_nom.property("invalid")
         fb.step_pick.setCurrentIndex(0)
         fb.run_selected()
         assert fb.busy is not None and fb.busy.isVisible()

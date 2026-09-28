@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QHBoxLayout, Q
 from ..engmath import eng_parts, fmt, params_from_z, z_from_measurement
 from ..theme import SERIES, theme
 from ..ut622e import FREQ_HZ, RANGES, SECONDARY_LABEL, Reading
-from ..widgets import Badge, Card, RollAxis, SmoothRange, field_label, make_plot, muted, watch_manual_zoom
+from ..widgets import (Badge, Card, RollAxis, SmoothRange, field_label, make_plot, muted, range_with_limits,
+                       watch_manual_zoom)
 
 
 def fmt_secondary(stype, v):
@@ -428,9 +429,8 @@ class MeasurePanel(QWidget):
             lo, hi = float(p.min()), float(p.max())
             if self.ref is not None:                     # keep the reference line in view
                 lo, hi = min(lo, self.ref), max(hi, self.ref)
-            if self.tol_band.isVisible():                # and the meter's tolerance window
-                blo, bhi = self.tol_band.getRegion()
-                lo, hi = min(lo, blo), max(hi, bhi)
+            if self.tol_band.isVisible():                # a tolerance edge joins the view once it is near
+                lo, hi = range_with_limits([lo, hi], self.tol_band.getRegion())
             self.ease["p"].set_target(lo, hi)
         if len(s):
             self.ease["s"].set_target(float(s.min()), float(s.max()))

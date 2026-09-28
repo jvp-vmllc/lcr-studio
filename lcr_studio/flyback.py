@@ -4,7 +4,6 @@ Method (standard magnetics practice):
   * Lp  — primary inductance, every other winding open (magnetizing inductance).
   * Llk — primary inductance with every other winding shorted (leakage inductance).
   * k   — coupling coefficient, k = sqrt(1 - Llk / Lp).
-  * DCR — winding DC resistance (meter's DCR function, 1 V DC).
   * n   — turns ratio estimate from the inductance ratio, Np/Ns ≈ sqrt(Lp / Ls).
 Both inductances are measured over a frequency × test-level matrix so the report shows how the
 part behaves at each drive level; limits are checked at the specification condition.
@@ -60,19 +59,18 @@ class Step:
     equ: str
     freqs: list[str]
     levels: list[str]
-    dcr: bool
 
 
 def build_steps(p: FlybackProfile) -> list[Step]:
     """Primary inductance, then leakage inductance. Per-winding secondary steps are left out for now."""
     freqs, levels = p.matrix()
     return [
-        Step("lp", "Primary inductance Lp + DCR",
+        Step("lp", "Primary inductance Lp",
              "Connect the meter to the primary winding. Leave every other winding open.",
-             "PRI_OPEN", p.lp_equ, freqs, levels, True),
+             "PRI_OPEN", p.lp_equ, freqs, levels),
         Step("llk", "Leakage inductance Llk",
              "Keep the meter on the primary winding. Short every other winding.",
-             "PRI_SHORT", p.llk_equ, freqs, levels, False),
+             "PRI_SHORT", p.llk_equ, freqs, levels),
     ]
 
 
@@ -89,15 +87,15 @@ class _Aborted(Exception):
 
 
 def run_step(meter, ctx, step: Step, settle: int, navg: int) -> dict:
-    """Worker-thread job: measure L and Q over the step's matrix (+ DCR), then restore the meter."""
+    """Worker-thread job: measure L and Q over the step's matrix, then restore the meter."""
     st0 = meter.read_settings(full=True)
     if st0.get("comp"):
         raise ValueError("Turn off tolerance mode on the meter first.")
     if hasattr(meter, "set_fixture"):
         meter.set_fixture(step.fixture)          # simulator only
     get = meter.fetch if st0.get("trigger") == "AUTO" else meter.trigger_fetch
-    rows, dcr, aborted = [], None, False
-    total = len(step.freqs) * len(step.levels) + (1 if step.dcr else 0)
+    rows, aborted = [], False
+    total = len(step.freqs) * len(step.levels)
     done = 0
 
     def take(n):
@@ -126,18 +124,10 @@ def run_step(meter, ctx, step: Step, settle: int, navg: int) -> dict:
                 done += 1
                 ctx.partial({"step": step.key, "row": row})
                 ctx.progress(done, total, f"{step.title} · {v_label(lv)} · {hz_label(f)}")
-        if step.dcr:
-            meter.set_primary("DCR")
-            take(settle + 2)
-            dcr = statistics.fmean(v[0] for v in take(navg))
-            done += 1
-            ctx.progress(done, total, f"{step.title} · DCR")
     except _Aborted:
         aborted = True
     finally:
         try:
-            if meter.read_settings(full=False).get("primary") == "DCR":
-                meter.set_primary("L")
             meter.set_frequency(st0["frequency"])
             meter.set_level(st0["level"])
             meter.set_primary(st0["primary"])
@@ -147,7 +137,7 @@ def run_step(meter, ctx, step: Step, settle: int, navg: int) -> dict:
                 meter.set_equivalent(st0["equivalent"])
         except (MeterError, KeyError, TypeError):
             pass
-    return {"step": step.key, "rows": rows, "dcr": dcr, "aborted": aborted, "equ": step.equ, "t": time.time()}
+    return {"step": step.key, "rows": rows, "aborted": aborted, "equ": step.equ, "t": time.time()}
 
 
 # ------------------------------------------------------------ evaluation --
@@ -220,9 +210,6 @@ def evaluate(p: FlybackProfile, results: dict) -> tuple[list[dict], str]:
             first, last = lvs[0], lvs[-1]
             add("Lp level dependence", f"{hz_label(f)}, {v_label(first['level'])} → {v_label(last['level'])}",
                 f"{(last['L'] / first['L'] - 1) * 100:+.3f} %")
-
-    if lp_res and lp_res.get("dcr") is not None:
-        add("Primary DCR", "DC", fmt(lp_res["dcr"], "Ω"))
 
     statuses = [r["status"] for r in rows]
     required = ["lp", "llk"]

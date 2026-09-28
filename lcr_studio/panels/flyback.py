@@ -1,4 +1,4 @@
-"""Flyback transformer test: Lp / Llk / DCR measurements and a one-page report."""
+"""Flyback transformer test: Lp / Llk measurements and a one-page report."""
 from __future__ import annotations
 
 import json
@@ -21,7 +21,7 @@ from ..report import LEVEL_COLORS, default_meta, export_pdf, render_image
 from ..theme import theme
 from ..ut622e import FREQ_HZ, FREQUENCIES, LEVELS
 from ..widgets import (Badge, BusyDialog, Card, EngEdit, Segmented, SmoothRange, field_label, make_plot, muted,
-                       plot_series, reveal_fraction, watch_manual_zoom)
+                       plot_series, range_with_limits, reveal_fraction, watch_manual_zoom)
 
 STATUS_KIND = {"done": "good", "running": "accent", "aborted": "warn", "error": "bad", "pending": ""}
 
@@ -98,6 +98,7 @@ class FlybackPanel(QWidget):
         scroll.setFixedWidth(356)
         inner = QWidget()
         scroll.setWidget(inner)
+        self.setup_scroll = scroll
         col = QVBoxLayout(inner)
         col.setContentsMargins(0, 0, 8, 0)
         col.setSpacing(10)
@@ -136,13 +137,13 @@ class FlybackPanel(QWidget):
         self.spec_level = QComboBox()
         for lv in LEVELS:
             self.spec_level.addItem(v_label(lv), lv)
-        self.lp_nom = EngEdit("e.g. 620u", "H")
+        self.lp_nom = EngEdit("e.g. 620u", "H", required=True)
         self.lp_tol = QDoubleSpinBox()
         self.lp_tol.setRange(0.1, 50)
         self.lp_tol.setSuffix(" %")
         self.lp_tol.setValue(10)
-        self.llk_max = EngEdit("e.g. 15u", "H")
-        self.llk_pct = EngEdit("e.g. 2.5")
+        self.llk_max = EngEdit("e.g. 15u", "H", required=True)
+        self.llk_pct = EngEdit("e.g. 2.5", required=True)
         self.lp_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
         self.llk_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
         rows = [("Test frequency", self.spec_freq), ("Test level", self.spec_level), ("Lp nominal", self.lp_nom),
@@ -394,8 +395,6 @@ class FlybackPanel(QWidget):
         p = self.profile()
         pt = next((r for r in res["rows"] if r["freq"] == p.spec_freq and r["level"] == p.spec_level), res["rows"][-1])
         text = fmt(pt["L"], "H", 4)
-        if res.get("dcr") is not None:
-            text += f" · {fmt(res['dcr'], 'Ω', 4)}"
         return text
 
     def _show_step(self):
@@ -407,7 +406,7 @@ class FlybackPanel(QWidget):
         self.instruction.setText(f"<b>{s.title}</b><br>{s.instruction}<br>"
                                  f"<span style='color:{theme.c['muted']}'>{n} point(s): "
                                  f"{', '.join(hz_label(f) for f in s.freqs)} × {', '.join(v_label(v) for v in s.levels)}"
-                                 f"{' + DCR' if s.dcr else ''} · {'series' if s.equ == 'SER' else 'parallel'} model</span>")
+                                 f" · {'series' if s.equ == 'SER' else 'parallel'} model</span>")
 
     def _spec_complete(self) -> bool:
         """Every limit in Specification holds a positive value."""
@@ -415,21 +414,36 @@ class FlybackPanel(QWidget):
                                                      self.llk_pct.value()))
 
     def _update_run_enabled(self):
-        ok = self._spec_complete()
-        self.run_btn.setEnabled(self.connected and not self.running_key and ok)
-        self.run_btn.setToolTip("" if ok else "Fill in every limit in Specification first")
-        self.spec_hint.setText("Limits are checked at the test frequency and level." if ok else
-                               "Fill in every limit to enable Run step.")
+        self.run_btn.setEnabled(self.connected and not self.running_key)
+        if self._spec_complete():
+            self.spec_hint.setText("Limits are checked at the test frequency and level.")
+            self.spec_hint.setStyleSheet("")
+        else:
+            self.spec_hint.setText("Fill in every limit to run a step.")
+
+    def _flag_missing(self):
+        """Run step was pressed with limits missing: say so and jump to the first empty one."""
+        self.spec_hint.setText("⚠ Fill in every limit before running a step.")
+        self.spec_hint.setStyleSheet(f"color: {theme.c['bad']};")
+        self.progress_text.setText("Fill in every limit in Specification first.")
+        for w in (self.lp_nom, self.llk_max, self.llk_pct):
+            if w.value() is None or w.value() <= 0:
+                self.setup_scroll.ensureWidgetVisible(w)
+                w.setFocus()
+                break
 
     def run_selected(self):
         i = self.step_pick.currentIndex()
-        if not (0 <= i < len(self.steps)) or self.running_key or not self._spec_complete():
+        if not (0 <= i < len(self.steps)) or self.running_key:
+            return
+        if not self._spec_complete():
+            self._flag_missing()
             return
         step = self.steps[i]
         p = self.profile()
         self.running_key = step.key
         self.status[step.key] = "running"
-        self.results[step.key] = {"step": step.key, "rows": [], "dcr": None, "aborted": False, "equ": step.equ}
+        self.results[step.key] = {"step": step.key, "rows": [], "aborted": False, "equ": step.equ}
         self._set_running(True)
         self._rebuild_steps()
         self.worker.job(lambda m, ctx, s=step: run_step(m, ctx, s, p.settle, p.navg), tag=self.TAG)
@@ -557,8 +571,8 @@ class FlybackPanel(QWidget):
                     rv = reveal if lv_rows[-1] is newest else 1.0
                     plot_series(plot, [r["hz"] for r in lv_rows], [r["L"] for r in lv_rows], LEVEL_COLORS[lv],
                                 v_label(lv), log_x=True, symbol_size=6, reveal=rv)
-            if ys or limits:                     # keep the curves and the limits in view together
-                lo, hi = min(ys + limits), max(ys + limits)
+            if ys or limits:                     # fit the curves; a limit joins the view once it is near
+                lo, hi = range_with_limits(ys, limits) if ys else (min(limits), max(limits))
                 pad = (hi - lo) * 0.12 or abs(hi) * 0.05 or 1e-9
                 self.ease[key].set_target(lo - pad, hi + pad)
         moving = False
@@ -656,8 +670,5 @@ class FlybackPanel(QWidget):
                 c.font = Font(bold=True)
             for r in res["rows"]:
                 sh.append([r["level"], r["hz"], r["L"], r["L_sd"], r["Q"], res.get("equ")])
-            if res.get("dcr") is not None:
-                sh.append([])
-                sh.append(["DCR (Ω)", res["dcr"]])
         wb.save(path)
         self.progress_text.setText(f"Data saved: {path}")

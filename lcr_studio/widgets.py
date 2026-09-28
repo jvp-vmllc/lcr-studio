@@ -225,15 +225,18 @@ class EngEdit(QLineEdit):
 
     valueChanged = Signal(object)
 
-    def __init__(self, placeholder: str = "", unit: str = "", parent=None):
+    def __init__(self, placeholder: str = "", unit: str = "", parent=None, required: bool = False):
         super().__init__(parent)
         self.unit = unit
+        self.required = required                 # outlined in red while empty or not positive
         self.setPlaceholderText(placeholder)
         self.textChanged.connect(self._changed)
+        if required:
+            self._changed()
 
     def _changed(self):
         v = self.value()
-        bad = bool(self.text().strip()) and v is None
+        bad = (bool(self.text().strip()) and v is None) or (self.required and (v is None or v <= 0))
         if bool(self.property("invalid")) != bad:
             self.setProperty("invalid", bad)
             repolish(self)
@@ -288,6 +291,20 @@ class SmoothRange:
         else:
             self.plot.setXRange(self.cur[0], self.cur[1], padding=self.padding)
         return self.cur != (lo, hi)
+
+
+def range_with_limits(values, limits, near: float = 3.0):
+    """Extent of the data, widened to include only those limits that lie within `near` data spans of it.
+
+    Far-away limits stay off-screen so the curve keeps its shape; a limit comes into view as the data
+    approaches it.
+    """
+    lo, hi = float(min(values)), float(max(values))
+    span = (hi - lo) or abs(hi) * 0.02 or 1e-9
+    for lim in limits:
+        if lo - near * span <= lim <= hi + near * span:
+            lo, hi = min(lo, lim), max(hi, lim)
+    return lo, hi
 
 
 def watch_manual_zoom(owner, *plots):

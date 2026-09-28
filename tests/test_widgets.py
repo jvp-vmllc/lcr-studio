@@ -1,6 +1,6 @@
 import numpy as np
 
-from lcr_studio.widgets import smooth_curve
+from lcr_studio.widgets import range_with_limits, smooth_curve
 
 
 def test_smooth_curve_passes_through_points_and_stays_monotone():
@@ -20,3 +20,11 @@ def test_smooth_curve_short_or_bad_input_is_passed_through():
     assert list(xs) == [1, 2] and list(ys) == [3, 4]
     xs, ys = smooth_curve([1, 1, 2], [3, 4, 5])             # duplicate x: no interpolation
     assert len(xs) == 3
+
+
+def test_range_with_limits_keeps_far_limits_out_and_near_limits_in():
+    data = [620e-6, 625e-6, 635e-6]                              # span 15 µH
+    assert range_with_limits(data, [558e-6, 682e-6]) == (620e-6, 635e-6)     # ±10 % band is far: curve keeps its shape
+    assert range_with_limits(data, [650e-6]) == (620e-6, 650e-6)             # a limit 1 span away comes into view
+    assert range_with_limits([9.2e-6, 9.24e-6], [12e-6]) == (9.2e-6, 9.24e-6)
+    assert range_with_limits([5.0, 5.0], [5.05]) == (5.0, 5.05)              # flat data still has a usable span
