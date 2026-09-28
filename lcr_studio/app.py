@@ -17,7 +17,6 @@ from .panels.flyback import FlybackPanel
 from .panels.logger import LogPanel
 from .panels.measure import MeasurePanel
 from .panels.sweep import SweepPanel
-from .panels.tools import ToolsPanel
 from .theme import theme
 from .ut622e import DEMO_PORT, find_ports
 from .widgets import Badge, muted
@@ -66,10 +65,9 @@ class MainWindow(QMainWindow):
         self.flyback = FlybackPanel(self.worker, self.settings)
         self.sweep = SweepPanel(self.worker)
         self.log = LogPanel()
-        self.tools = ToolsPanel()
         self.console = ConsolePanel(self.worker)
         for w, name in [(self.measure, "Measure"), (self.flyback, "Flyback"), (self.sweep, "Sweep"),
-                        (self.log, "Data log"), (self.tools, "Tools"), (self.console, "Console")]:
+                        (self.log, "Data log"), (self.console, "Console")]:
             self.tabs.addTab(w, name)
         body.addWidget(self.tabs, 1)
         root.addLayout(body, 1)
@@ -202,7 +200,6 @@ class MainWindow(QMainWindow):
     def _on_reading(self, r):
         self.measure.add_reading(r)
         self.log.on_reading(r)
-        self.tools.on_reading(r)
 
     def _on_job_error(self, tag, msg):
         if tag not in ("sweep", "flyback"):

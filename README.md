@@ -6,7 +6,7 @@
 
 **A modern desktop application for the UNI-T UT622E handheld LCR meter.**<br>
 Live readout, **flyback transformer testing with one-page PDF reports**, equivalent-circuit analysis,<br>
-frequency sweeps, data logging and engineering calculators, all over the meter's USB cable.
+frequency sweeps and data logging, all over the meter's USB cable.
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-.deb-FCC624?logo=linux&logoColor=black)
@@ -26,7 +26,7 @@ frequency sweeps, data logging and engineering calculators, all over the meter's
 ## Why
 
 The vendor software does the basics and little else. LCR Studio exposes **every remote function of the
-meter** and adds the engineering tools you would normally reach for a spreadsheet for: series/parallel
+meter** and adds the analysis you would normally reach for a spreadsheet for: series/parallel
 conversion, ESR/Q/D/θ derivation, sweeps and statistics.
 
 No NI-VISA, no drivers beyond the standard CH340 USB-serial driver.
@@ -123,14 +123,6 @@ the full measurement context and your note. Export to Excel or CSV.
 
 <img src="docs/images/data-log.png" alt="Data log tab" width="100%">
 
-### Engineering tools
-
-Component analyzer (series ↔ parallel, any loss notation), LC resonance and reactance, RC / RL time constant,
-capacitor energy and ESR heating, nearest E6 – E96 standard values, series / parallel networks, and a
-D / Q / δ / θ / power-factor converter. Most can pull in the live reading.
-
-<img src="docs/images/tools.png" alt="Tools tab with calculators" width="100%">
-
 ### SCPI console
 
 A raw terminal with command history, quick-command list and a traffic monitor, for anything the UI doesn't
@@ -216,11 +208,11 @@ bump still builds the packages (downloadable from the workflow run) but doesn't 
 lcr_studio/
   ut622e.py        meter driver (SCPI over pyserial) + simulator
   worker.py        background thread that owns the serial port
-  engmath.py       SI formatting, impedance math, E-series tables
+  engmath.py       SI formatting, impedance math
   theme.py         dark / light themes
   flyback.py       flyback test: profile, guided steps, measurement job, pass/fail evaluation
   report.py        one-page US Letter PDF report renderer
-  panels/          one module per tab (measure, flyback, sweep, logger, tools, console, controls)
+  panels/          one module per tab (measure, flyback, sweep, logger, console, controls)
   assets/          icon and bundled Barlow font
 packaging/         PyInstaller build script, .desktop file, udev rule, icon
 scripts/           screenshot generator

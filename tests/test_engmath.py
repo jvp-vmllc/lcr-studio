@@ -1,8 +1,6 @@
-import math
-
 import pytest
 
-from lcr_studio.engmath import fmt, nearest_standard, params_from_z, parse_eng, z_from_lc, z_from_measurement
+from lcr_studio.engmath import fmt, params_from_z, parse_eng, z_from_lc, z_from_measurement
 
 
 @pytest.mark.parametrize("value,expected", [
@@ -41,9 +39,3 @@ def test_measurement_reconstruction():
     assert z_from_measurement("R", p["Rs"], "X", p["Xs"], 1e4, "SER") == pytest.approx(z)
     assert z_from_measurement("DCR", 10, None, None, None, None) is None
 
-
-def test_nearest_standard():
-    assert nearest_standard(4.62e3, "E12") == pytest.approx(4.7e3)
-    assert nearest_standard(4.62e3, "E96") == pytest.approx(4.64e3)
-    assert nearest_standard(0.95e-6, "E24") == pytest.approx(0.91e-6)
-    assert math.isclose(nearest_standard(1e-12, "E6"), 1e-12)

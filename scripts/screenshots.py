@@ -114,15 +114,6 @@ w.log.toggle()
 shot("data-log", w.log)
 meter(lambda m: m.raw("DEMO:PARTS OFF"))
 
-# Tools
-t = w.tools
-for edit, text in [(t.an_val, "100n"), (t.an_lossv, "0.012"), (t.rs_l, "10u"), (t.rs_c, "100n"), (t.rs_f, "100k"),
-                   (t.tc_r, "10k"), (t.tc_c, "100n"), (t.tc_l, "1m"), (t.cp_c, "470u"), (t.cp_v, "25"),
-                   (t.cp_esr, "50m"), (t.cp_i, "1.2"), (t.sv_val, "4.62k"), (t.sv_nom, "4.7k"),
-                   (t.nw_vals, "10k, 4.7k, 2.2k"), (t.dq_val, "0.02")]:
-    edit.setText(text)
-shot("tools", w.tools)
-
 # Console
 w.tabs.setCurrentWidget(w.console)
 for cmd in ("*IDN?", "FREQ?", "FUNC:IMPA?", "FETC?", "COMP:TOL?"):
