@@ -191,7 +191,8 @@ def paint_report(painter: QPainter, dpi: float, profile: FlybackProfile, results
     info = [
         ("Part number", profile.part_number or "—"), ("Station", meta.get("station") or "—"),
         ("Date", meta.get("date", "")),
-        ("Instrument", meta.get("meter", "—")), ("Spec condition", f"{hz_label(profile.spec_freq)}, {v_label(profile.spec_level)} rms"),
+        ("Instrument", meta.get("meter", "—")), ("Lp · Llk condition", f"{hz_label(profile.lp_freq)}, {v_label(profile.lp_level)} · "
+                              f"{hz_label(profile.llk_freq)}, {v_label(profile.llk_level)}"),
         ("Speed · averaging", f"{meta.get('speed', '?')} · settle {profile.settle}, avg {profile.navg}"),
         ("Open / short corr.", meta.get("correction", "—")),
     ]
@@ -257,14 +258,15 @@ def paint_report(painter: QPainter, dpi: float, profile: FlybackProfile, results
     y += chh + 6
 
     level_series = []
-    for label, res, color in (("Lp", lp_res, ACCENT), ("Llk", llk_res, WARN)):
+    for label, res, color, freq in (("Lp", lp_res, ACCENT, profile.lp_freq), ("Llk", llk_res, WARN, profile.llk_freq)):
         if res:
-            pts = [(r["level"], r["L"]) for r in res["rows"] if r["freq"] == profile.spec_freq]
+            label = f"{label} @ {hz_label(freq)}"
+            pts = [(r["level"], r["L"]) for r in res["rows"] if r["freq"] == freq]
             pts.sort(key=lambda p: LEVELS.index(p[0]))
             if pts:
                 base = pts[0][1]
                 level_series.append((label, color, [(lv, (v / base - 1) * 100) for lv, v in pts]))
-    chart(cv, x0, y, chw, chh, f"Level dependence @ {hz_label(profile.spec_freq)}", level_series, "%",
+    chart(cv, x0, y, chw, chh, "Level dependence at the test frequency", level_series, "%",
           xs_kind="level")
     chart(cv, x0 + chw + gap, y, chw, chh, "Primary quality factor Q", per_level(lp_res, "Q"), "")
     y += chh + 6

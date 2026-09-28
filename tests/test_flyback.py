@@ -46,9 +46,19 @@ def test_steps_are_primary_then_leakage(measured):
 
 def test_profile_loads_pre_v2_json():
     old = {"part_number": "X", "description": "gone", "primary": {"name": "Primary", "pins": "1-3", "dcr_max": 0.4},
-           "secondaries": [{"name": "S", "pins": "7-9"}], "lp_nom": 1e-3}
+           "secondaries": [{"name": "S", "pins": "7-9"}], "lp_nom": 1e-3, "spec_freq": "1kHz"}
     p = FlybackProfile.from_dict(old)
     assert (p.part_number, p.lp_nom) == ("X", 1e-3)
+    assert p.lp_freq == p.llk_freq == "1kHz"                   # one shared condition maps onto both steps
+
+
+def test_llk_has_its_own_test_condition(measured):
+    _, p, results = measured
+    rows, _ = evaluate(replace(p, llk_freq="1kHz", llk_level="0.1V"), results)
+    conds = {r["param"]: r["cond"] for r in rows}
+    assert conds["Primary inductance Lp"].startswith("10 kHz, 1.0 V")
+    assert conds["Leakage inductance Llk"].startswith("1 kHz, 0.1 V")
+    assert conds["Leakage ratio Llk / Lp"] == "Lp 10 kHz, 1.0 V / Llk 1 kHz, 0.1 V"
 
 
 def test_measurements_and_meter_restored(measured):

@@ -21,8 +21,10 @@ from .ut622e import FREQ_HZ, FREQUENCIES, LEVELS, MeterError
 @dataclass
 class FlybackProfile:
     part_number: str = ""
-    spec_freq: str = "10kHz"
-    spec_level: str = "1.0V"
+    lp_freq: str = "10kHz"
+    lp_level: str = "1.0V"
+    llk_freq: str = "10kHz"
+    llk_level: str = "1.0V"
     lp_nom: float | None = None
     lp_tol: float = 10.0
     llk_max: float | None = None
@@ -40,13 +42,17 @@ class FlybackProfile:
     @classmethod
     def from_dict(cls, d: dict) -> "FlybackProfile":
         d = dict(d)
+        for old, new in (("spec_freq", ("lp_freq", "llk_freq")), ("spec_level", ("lp_level", "llk_level"))):
+            if old in d:                                    # profiles before 2.9 had one shared condition
+                for k in new:
+                    d.setdefault(k, d[old])
         known = cls.__dataclass_fields__.keys()
         return cls(**{k: v for k, v in d.items() if k in known})
 
-    def matrix(self):
-        """Frequencies and levels to measure, always including the specification condition."""
-        freqs = [f for f in FREQUENCIES if f in self.freqs or f == self.spec_freq]
-        levels = [lv for lv in LEVELS if lv in self.levels or lv == self.spec_level]
+    def matrix(self, freq: str, level: str):
+        """Frequencies and levels to measure for a step, always including its test condition."""
+        freqs = [f for f in FREQUENCIES if f in self.freqs or f == freq]
+        levels = [lv for lv in LEVELS if lv in self.levels or lv == level]
         return freqs, levels
 
 
@@ -63,14 +69,15 @@ class Step:
 
 def build_steps(p: FlybackProfile) -> list[Step]:
     """Primary inductance, then leakage inductance. Per-winding secondary steps are left out for now."""
-    freqs, levels = p.matrix()
+    lp_f, lp_l = p.matrix(p.lp_freq, p.lp_level)
+    llk_f, llk_l = p.matrix(p.llk_freq, p.llk_level)
     return [
         Step("lp", "Primary inductance Lp",
              "Connect the meter to the primary winding. Leave every other winding open.",
-             "PRI_OPEN", p.lp_equ, freqs, levels),
+             "PRI_OPEN", p.lp_equ, lp_f, lp_l),
         Step("llk", "Leakage inductance Llk",
              "Keep the meter on the primary winding. Short every other winding.",
-             "PRI_SHORT", p.llk_equ, freqs, levels),
+             "PRI_SHORT", p.llk_equ, llk_f, llk_l),
     ]
 
 
@@ -157,15 +164,17 @@ def esr_from(row, equ):
 
 def evaluate(p: FlybackProfile, results: dict) -> tuple[list[dict], str]:
     """Summary rows (param, cond, value, limit, status) and the overall verdict."""
-    f, lv = p.spec_freq, p.spec_level
-    cond = f"{hz_label(f)}, {v_label(lv)}"
+    f, lv = p.lp_freq, p.lp_level
+    cond = f"{hz_label(f)}, {v_label(lv)}"                                   # Lp test condition
+    lcond = f"{hz_label(p.llk_freq)}, {v_label(p.llk_level)}"                # Llk test condition
+    ratio_cond = cond if (p.llk_freq, p.llk_level) == (f, lv) else f"Lp {cond} / Llk {lcond}"
     rows = []
 
     def add(param, cond_, value, limit="—", status="INFO"):
         rows.append({"param": param, "cond": cond_, "value": value, "limit": limit, "status": status})
 
     lp_res, llk_res = results.get("lp"), results.get("llk")
-    lp_pt, llk_pt = point(lp_res, f, lv), point(llk_res, f, lv)
+    lp_pt, llk_pt = point(lp_res, f, lv), point(llk_res, p.llk_freq, p.llk_level)
     lp = lp_pt["L"] if lp_pt else None
     llk = llk_pt["L"] if llk_pt else None
 
@@ -183,22 +192,22 @@ def evaluate(p: FlybackProfile, results: dict) -> tuple[list[dict], str]:
 
     if llk is not None:
         if p.llk_max:
-            add("Leakage inductance Llk", cond + f", {p.llk_equ.lower()}", fmt(llk, "H"),
+            add("Leakage inductance Llk", lcond + f", {p.llk_equ.lower()}", fmt(llk, "H"),
                 f"≤ {fmt(p.llk_max, 'H', 4)}", "PASS" if llk <= p.llk_max else "FAIL")
         else:
-            add("Leakage inductance Llk", cond + f", {p.llk_equ.lower()}", fmt(llk, "H"))
+            add("Leakage inductance Llk", lcond + f", {p.llk_equ.lower()}", fmt(llk, "H"))
     else:
-        add("Leakage inductance Llk", cond, "not measured", status="—")
+        add("Leakage inductance Llk", lcond, "not measured", status="—")
 
     if lp and llk is not None and lp > 0:
         pct = llk / lp * 100
         if p.llk_pct_max:
-            add("Leakage ratio Llk / Lp", cond, f"{pct:.3f} %", f"≤ {p.llk_pct_max:g} %",
+            add("Leakage ratio Llk / Lp", ratio_cond, f"{pct:.3f} %", f"≤ {p.llk_pct_max:g} %",
                 "PASS" if pct <= p.llk_pct_max else "FAIL")
         else:
-            add("Leakage ratio Llk / Lp", cond, f"{pct:.3f} %")
+            add("Leakage ratio Llk / Lp", ratio_cond, f"{pct:.3f} %")
         k = math.sqrt(max(0.0, 1 - llk / lp))
-        add("Coupling coefficient k", cond, f"{k:.5f}")
+        add("Coupling coefficient k", ratio_cond, f"{k:.5f}")
 
     if lp_pt:
         add("Primary Q", cond, f"{lp_pt['Q']:.4g}")

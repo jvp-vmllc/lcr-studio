@@ -129,34 +129,46 @@ class FlybackPanel(QWidget):
         unit.body.addLayout(row)
         col.addWidget(unit)
 
-        spec = Card("Specification")
-        g = QGridLayout()
-        g.setVerticalSpacing(6)
-        self.spec_freq = QComboBox()
-        for f in FREQUENCIES:
-            self.spec_freq.addItem(hz_label(f), f)
-        self.spec_level = QComboBox()
-        for lv in LEVELS:
-            self.spec_level.addItem(v_label(lv), lv)
+        def cond_pickers():
+            fq = QComboBox()
+            for freq in FREQUENCIES:
+                fq.addItem(hz_label(freq), freq)
+            lv = QComboBox()
+            for level in LEVELS:
+                lv.addItem(v_label(level), level)
+            return fq, lv
+
+        def spec_card(title, rows):
+            card = Card(title)
+            g = QGridLayout()
+            g.setVerticalSpacing(6)
+            for i, (lab, wdg) in enumerate(rows):
+                g.addWidget(field_label(lab), i, 0)
+                g.addWidget(wdg, i, 1)
+            card.body.addLayout(g)
+            return card
+
+        self.lp_freq, self.lp_level = cond_pickers()
         self.lp_nom = UnitEdit("H", required=True)
         self.lp_tol = QDoubleSpinBox()
         self.lp_tol.setRange(0.1, 50)
         self.lp_tol.setSuffix(" %")
         self.lp_tol.setValue(10)
+        self.lp_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
+        col.addWidget(spec_card("Lp specification", [("Test frequency", self.lp_freq), ("Test level", self.lp_level),
+                                                     ("Nominal", self.lp_nom), ("Tolerance ±", self.lp_tol),
+                                                     ("Circuit model", self.lp_equ)]))
+
+        self.llk_freq, self.llk_level = cond_pickers()
         self.llk_max = UnitEdit("H", required=True)
         self.llk_pct = UnitEdit("%", prefixes=("",), required=True)
-        self.lp_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
         self.llk_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
-        rows = [("Test frequency", self.spec_freq), ("Test level", self.spec_level), ("Lp nominal", self.lp_nom),
-                ("Lp tolerance ±", self.lp_tol), ("Llk max", self.llk_max), ("Llk / Lp max (%)", self.llk_pct),
-                ("Lp circuit model", self.lp_equ), ("Llk circuit model", self.llk_equ)]
-        for i, (lab, wdg) in enumerate(rows):
-            g.addWidget(field_label(lab), i, 0)
-            g.addWidget(wdg, i, 1)
-        spec.body.addLayout(g)
+        llk = spec_card("Llk specification", [("Test frequency", self.llk_freq), ("Test level", self.llk_level),
+                                              ("Llk max", self.llk_max), ("Llk / Lp max", self.llk_pct),
+                                              ("Circuit model", self.llk_equ)])
         self.spec_hint = muted("")
-        spec.body.addWidget(self.spec_hint)
-        col.addWidget(spec)
+        llk.body.addWidget(self.spec_hint)
+        col.addWidget(llk)
 
         mat = Card("Test matrix")
         mat.body.addWidget(field_label("Frequencies"))
@@ -195,7 +207,7 @@ class FlybackPanel(QWidget):
         self.part.textChanged.connect(lambda _t: self._profile_changed())
         for w in (self.lp_nom, self.llk_max, self.llk_pct):
             w.valueChanged.connect(lambda _v: self._profile_changed())
-        for w in (self.spec_freq, self.spec_level):
+        for w in (self.lp_freq, self.lp_level, self.llk_freq, self.llk_level):
             w.currentIndexChanged.connect(lambda _i: self._profile_changed())
         for w in (self.lp_tol,):
             w.valueChanged.connect(lambda _v: self._profile_changed())
@@ -299,7 +311,8 @@ class FlybackPanel(QWidget):
     def profile(self) -> FlybackProfile:
         return FlybackProfile(
             part_number=self.part.text().strip(),
-            spec_freq=self.spec_freq.currentData(), spec_level=self.spec_level.currentData(),
+            lp_freq=self.lp_freq.currentData(), lp_level=self.lp_level.currentData(),
+            llk_freq=self.llk_freq.currentData(), llk_level=self.llk_level.currentData(),
             lp_nom=self.lp_nom.value(), lp_tol=self.lp_tol.value(), llk_max=self.llk_max.value(),
             llk_pct_max=self.llk_pct.value(), lp_equ=self.lp_equ.value() or "SER", llk_equ=self.llk_equ.value() or "SER",
             freqs=[f for f, cb in self.freq_boxes.items() if cb.isChecked()],
@@ -310,8 +323,9 @@ class FlybackPanel(QWidget):
         self._loading = True
         try:
             self.part.setText(p.part_number)
-            self.spec_freq.setCurrentIndex(max(0, self.spec_freq.findData(p.spec_freq)))
-            self.spec_level.setCurrentIndex(max(0, self.spec_level.findData(p.spec_level)))
+            for box, value in ((self.lp_freq, p.lp_freq), (self.lp_level, p.lp_level),
+                               (self.llk_freq, p.llk_freq), (self.llk_level, p.llk_level)):
+                box.setCurrentIndex(max(0, box.findData(value)))
             self.lp_nom.set_value(p.lp_nom, 4)
             self.lp_tol.setValue(p.lp_tol)
             self.llk_max.set_value(p.llk_max, 4)
@@ -394,7 +408,8 @@ class FlybackPanel(QWidget):
         if not res or not res["rows"]:
             return ""
         p = self.profile()
-        pt = next((r for r in res["rows"] if r["freq"] == p.spec_freq and r["level"] == p.spec_level), res["rows"][-1])
+        freq, level = (p.lp_freq, p.lp_level) if key == "lp" else (p.llk_freq, p.llk_level)
+        pt = next((r for r in res["rows"] if r["freq"] == freq and r["level"] == level), res["rows"][-1])
         return fmt(pt["L"], "H", 4)
 
     def _ticked(self):
@@ -424,7 +439,7 @@ class FlybackPanel(QWidget):
     def _update_run_enabled(self):
         self.run_btn.setEnabled(self.connected and not self.running_key)
         if self._spec_complete():
-            self.spec_hint.setText("Limits are checked at the test frequency and level.")
+            self.spec_hint.setText("Each limit is checked at its own test frequency and level.")
             self.spec_hint.setStyleSheet("")
         else:
             self.spec_hint.setText("Fill in every limit to run a step.")
@@ -515,7 +530,8 @@ class FlybackPanel(QWidget):
             self.queue = []
             self.progress_text.setText("Aborted. Partial data kept.")
         elif self.queue:
-            nxt = next(s for s in self.steps if s.key == self.queue.pop(0))
+            key = self.queue.pop(0)
+            nxt = next(s for s in self.steps if s.key == key)
             self.progress_text.setText(f"Step complete. Wire up for {nxt.title}.")
             if self.busy is not None:                # same pop-up: what to wire next, Continue or Stop
                 self.busy.prompt("Next step", nxt.title, nxt.instruction,
