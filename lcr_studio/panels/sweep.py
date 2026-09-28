@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QGridLayout, Q
 from ..engmath import fmt
 from ..theme import SERIES, theme
 from ..ut622e import FREQ_HZ, FREQUENCIES, LEVELS, PRIMARY_UNIT, SECONDARY_LABEL, SECONDARY_UNIT, MeterError
-from ..widgets import Card, export_table, field_label, make_plot, muted, plot_series, reveal_fraction
+from ..widgets import (Card, SmoothRange, export_table, field_label, make_plot, muted, plot_series, reveal_fraction,
+                       watch_manual_zoom)
 
 SWEEP_SECONDARIES = [("D", "D"), ("Q", "Q"), ("ESR", "ESR"), ("X", "X"), ("DEG", "θ°")]
 PERIOD = {"SLOW": 0.5, "MED": 0.2, "FAST": 0.05}
@@ -166,7 +167,7 @@ class SweepPanel(QWidget):
 
         runs = Card("Runs")
         self.run_list = QListWidget()
-        self.run_list.itemChanged.connect(lambda _: self._redraw())
+        self.run_list.itemChanged.connect(lambda _: self._data_changed())
         self.run_list.currentRowChanged.connect(lambda _: self._fill_table())
         runs.body.addWidget(self.run_list, 1)
         row = QHBoxLayout()
@@ -192,7 +193,7 @@ class SweepPanel(QWidget):
         split.setChildrenCollapsible(False)
         charts = Card("Frequency response")
         self.sec_pick = QComboBox()
-        self.sec_pick.currentIndexChanged.connect(lambda _: self._redraw())
+        self.sec_pick.currentIndexChanged.connect(lambda _: self._data_changed())
         charts.header.addWidget(field_label("Lower chart"))
         charts.header.addWidget(self.sec_pick)
         self.pplot = make_plot("Primary", "", "Frequency", "Hz", log_x=True)
@@ -207,6 +208,9 @@ class SweepPanel(QWidget):
             plot.getPlotItem().setLabel("bottom", "Frequency (Hz)")
             plot.getPlotItem().setXRange(math.log10(90), math.log10(110e3), padding=0.02)
         self.legend = self.pplot.addLegend(offset=(-10, 10))
+        self.ease_p, self.ease_s = SmoothRange(self.pplot), SmoothRange(self.splot)
+        self._follow = True
+        watch_manual_zoom(self, self.pplot, self.splot)
         charts.body.addWidget(self.pplot, 3)
         charts.body.addWidget(self.splot, 2)
         split.addWidget(charts)
@@ -270,7 +274,7 @@ class SweepPanel(QWidget):
             self.running["rows"].append(row)
             self._anim_t0 = time.monotonic()
             self._anim.start()
-            self._redraw()
+            self._data_changed()
 
     def on_done(self, tag, result):
         if tag != "sweep" or self.running is None:
@@ -302,7 +306,7 @@ class SweepPanel(QWidget):
         self.run_list.addItem(item)
         self.run_list.setCurrentRow(self.run_list.count() - 1)
         self._refresh_sec_pick()
-        self._redraw()
+        self._data_changed()
 
     def _delete_run(self):
         row = self.run_list.currentRow()
@@ -310,7 +314,7 @@ class SweepPanel(QWidget):
             self.runs.pop(row)
             self.run_list.takeItem(row)
             self._refresh_sec_pick()
-            self._redraw()
+            self._data_changed()
             self._fill_table()
 
     def _refresh_sec_pick(self):
@@ -335,6 +339,10 @@ class SweepPanel(QWidget):
                         name=self.running["name"] + " (running)", live=True)
             runs.append(live)
         return runs
+
+    def _data_changed(self):
+        self._follow = True                      # new data: follow it again even after a manual zoom
+        self._redraw()
 
     def _redraw(self):
         reveal = 1.0
@@ -372,6 +380,22 @@ class SweepPanel(QWidget):
                 if sec and all(sec in r for r in rows):
                     plot_series(self.splot, x, [r[sec] for r in rows], run["color"], log_x=True, style=style,
                                 reveal=rv)
+        ys = [r["p"] for run in runs for r in run["rows"]]
+        if ys:
+            self.ease_p.set_target(min(ys), max(ys))
+        if sec:
+            ss = [r[sec] for run in runs for r in run["rows"] if r.get(sec) is not None]
+            if ss:
+                self.ease_s.set_target(min(ss), max(ss))
+        moving = False
+        if self._follow:
+            moving = self.ease_p.tick()
+            moving = self.ease_s.tick() or moving
+        if moving or self._anim_t0 is not None:     # keep the display timer running until everything settles
+            if not self._anim.isActive():
+                self._anim.start()
+        else:
+            self._anim.stop()
 
     def _run_table(self, run):
         secs = run["secs"]

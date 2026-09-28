@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import csv
+import math
 import time
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QButtonGroup, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QMessageBox, QPushButton, QSizePolicy, QVBoxLayout, QWidget)
+from PySide6.QtCore import QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtWidgets import (QButtonGroup, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
+                               QLineEdit, QMessageBox, QProgressBar, QPushButton, QSizePolicy, QVBoxLayout,
+                               QWidget)
 
 from .engmath import fmt, parse_eng
 from .theme import repolish, style_plot, theme
@@ -106,6 +109,117 @@ def muted(text: str = "") -> QLabel:
     return lab
 
 
+class Spinner(QWidget):
+    """Rotating arc used as the busy indicator."""
+
+    def __init__(self, size: int = 46, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(size, size)
+        self.angle = 0
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._step)
+        self.timer.start(30)
+
+    def _step(self):
+        self.angle = (self.angle + 9) % 360
+        self.update()
+
+    def stop(self):
+        self.timer.stop()
+        self.update()
+
+    def paintEvent(self, _ev):
+        c = theme.c
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = QRectF(4, 4, self.width() - 8, self.height() - 8)
+        p.setPen(QPen(QColor(c["border"]), 4))
+        p.drawEllipse(r)
+        if self.timer.isActive():
+            p.setPen(QPen(QColor(c["accent"]), 4, Qt.SolidLine, Qt.RoundCap))
+            p.drawArc(r, int(-self.angle * 16), 110 * 16)
+        p.end()
+
+
+class BusyDialog(QDialog):
+    """Frameless pop-up shown while a long measurement runs: what is being measured, progress and Abort."""
+
+    def __init__(self, kicker: str, title: str, on_abort, parent=None):
+        super().__init__(parent, Qt.Dialog | Qt.FramelessWindowHint)
+        self.setModal(True)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self._on_abort = on_abort
+        self._running = True
+        frame = QFrame(self)
+        frame.setObjectName("Card")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(frame)
+        lay = QVBoxLayout(frame)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(12)
+        head = QHBoxLayout()
+        head.setSpacing(16)
+        self.spinner = Spinner()
+        head.addWidget(self.spinner, 0, Qt.AlignTop)
+        texts = QVBoxLayout()
+        texts.setSpacing(2)
+        self.kicker = QLabel(kicker.upper())
+        self.kicker.setObjectName("CardTitle")
+        self.title = QLabel(title)
+        self.title.setObjectName("AppTitle")
+        self.detail = muted("Starting…")
+        texts.addWidget(self.kicker)
+        texts.addWidget(self.title)
+        texts.addWidget(self.detail)
+        head.addLayout(texts, 1)
+        lay.addLayout(head)
+        self.bar = QProgressBar()
+        self.bar.setTextVisible(False)
+        lay.addWidget(self.bar)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        self.abort_btn = QPushButton("Abort")
+        self.abort_btn.clicked.connect(self._abort)
+        row.addWidget(self.abort_btn)
+        lay.addLayout(row)
+        self.setMinimumWidth(440)
+
+    def open_centered(self):
+        self.adjustSize()
+        top = self.parentWidget().window() if self.parentWidget() else None
+        if top is not None:
+            self.move(top.frameGeometry().center() - self.rect().center())
+        self.show()
+
+    def progress(self, i: int, n: int, detail: str):
+        self.bar.setMaximum(max(n, 1))
+        self.bar.setValue(i)
+        self.detail.setText(detail)
+
+    def finish(self, text: str, ok: bool = True, delay_ms: int = 900):
+        """Show the outcome briefly, then close."""
+        self._running = False
+        self.spinner.stop()
+        self.abort_btn.setEnabled(False)
+        self.kicker.setText("DONE" if ok else "STOPPED")
+        self.detail.setText(text)
+        if ok:
+            self.bar.setValue(self.bar.maximum())
+        QTimer.singleShot(delay_ms, self.accept)
+
+    def _abort(self):
+        self.abort_btn.setEnabled(False)
+        self.detail.setText("Stopping…")
+        self._on_abort()
+
+    def reject(self):                      # Esc: abort the job instead of hiding the dialog while it runs
+        if self._running:
+            self._abort()
+        else:
+            super().reject()
+
+
 class EngEdit(QLineEdit):
     """Line edit that accepts engineering notation (4.7u, 10k, 2.2nF...)."""
 
@@ -133,6 +247,53 @@ class EngEdit(QLineEdit):
 
     def set_value(self, v, digits: int = 5):
         self.setText("" if v is None else fmt(v, self.unit, digits))
+
+
+class SmoothRange:
+    """Eases one axis of a plot toward a target range instead of snapping. Call tick() once per display frame."""
+
+    K = 0.2          # fraction of the remaining distance covered per frame: settles in about 0.4 s at 30 fps
+
+    def __init__(self, plot, axis: str = "y", padding: float = 0.08):
+        self.plot, self.axis, self.padding = plot, axis, padding
+        self.cur = None
+        self.target = None
+
+    def set_target(self, lo, hi):
+        lo, hi = float(lo), float(hi)
+        if hi <= lo:
+            pad = abs(lo) * 1e-4 or 1e-12
+            lo, hi = lo - pad, hi + pad
+        self.target = (lo, hi)
+
+    def clear(self):
+        self.cur = self.target = None
+
+    def tick(self) -> bool:
+        """Apply one easing step; returns True while the range is still moving."""
+        if self.target is None:
+            return False
+        lo, hi = self.target
+        if self.cur is None or not all(math.isfinite(v) for v in self.cur):
+            self.cur = (lo, hi)
+        else:
+            c0 = self.cur[0] + (lo - self.cur[0]) * self.K
+            c1 = self.cur[1] + (hi - self.cur[1]) * self.K
+            eps = (hi - lo) * 1e-3
+            if abs(c0 - lo) < eps and abs(c1 - hi) < eps:
+                c0, c1 = lo, hi
+            self.cur = (c0, c1)
+        if self.axis == "y":
+            self.plot.setYRange(self.cur[0], self.cur[1], padding=self.padding)
+        else:
+            self.plot.setXRange(self.cur[0], self.cur[1], padding=self.padding)
+        return self.cur != (lo, hi)
+
+
+def watch_manual_zoom(owner, *plots):
+    """Clear owner._follow when the user zooms or pans one of the plots by hand."""
+    for plot in plots:
+        plot.getViewBox().sigRangeChangedManually.connect(lambda *_: setattr(owner, "_follow", False))
 
 
 class RollAxis(pg.AxisItem):

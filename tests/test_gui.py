@@ -5,6 +5,8 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
 from lcr_studio.app import MainWindow, load_fonts
+from lcr_studio.flyback import FlybackProfile
+from lcr_studio.widgets import BusyDialog
 from lcr_studio.theme import theme
 
 
@@ -37,6 +39,23 @@ def test_main_window_streams_demo_readings(tmp_path):
             time.sleep(0.01)
         x_b = win.measure.pplot.getViewBox().viewRange()[0]
         assert 0.4 < x_b[1] - x_a[1] < 1.5 and abs((x_b[1] - x_b[0]) - 60) < 1e-6
+        fb = win.flyback                             # a flyback step shows the busy pop-up, then closes it
+        fb.set_profile(FlybackProfile(part_number="T", settle=0, navg=1, freqs=["1kHz"], levels=["0.3V"],
+                                      spec_freq="1kHz", spec_level="0.3V"))
+        fb.step_pick.setCurrentIndex(0)
+        fb.run_selected()
+        assert fb.busy is not None and fb.busy.isVisible()
+        deadline = time.monotonic() + 30
+        while fb.running_key is not None and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.02)
+        assert fb.running_key is None and fb.status.get("lp") == "done"
+        busy_open = lambda: any(isinstance(d, BusyDialog) and d.isVisible() for d in QApplication.topLevelWidgets())
+        deadline = time.monotonic() + 3
+        while busy_open() and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.02)
+        assert not busy_open()
     finally:
         win.close()
         app.processEvents()

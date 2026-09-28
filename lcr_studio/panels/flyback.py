@@ -11,7 +11,7 @@ import pyqtgraph as pg
 from PySide6.QtCore import QSettings, Qt, QTimer
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QGridLayout, QHBoxLayout,
-                               QHeaderView, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea,
+                               QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
                                QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from .. import __version__
@@ -20,7 +20,8 @@ from ..flyback import FlybackProfile, build_steps, evaluate, hz_label, run_step,
 from ..report import LEVEL_COLORS, default_meta, export_pdf, render_image
 from ..theme import theme
 from ..ut622e import FREQ_HZ, FREQUENCIES, LEVELS
-from ..widgets import Badge, Card, EngEdit, Segmented, field_label, make_plot, muted, plot_series, reveal_fraction
+from ..widgets import (Badge, BusyDialog, Card, EngEdit, Segmented, SmoothRange, field_label, make_plot, muted,
+                       plot_series, reveal_fraction, watch_manual_zoom)
 
 STATUS_KIND = {"done": "good", "running": "accent", "aborted": "warn", "error": "bad", "pending": ""}
 
@@ -68,6 +69,7 @@ class FlybackPanel(QWidget):
         self.connected = False
         self.meta = {"meter": "—", "speed": "?", "correction": "—"}
         self._loading = False
+        self.busy = None                      # pop-up shown while a step runs
         self._anim_t0 = None
         self._anim = QTimer(self)             # redraws while the newest point grows in
         self._anim.setInterval(16)
@@ -230,9 +232,6 @@ class FlybackPanel(QWidget):
         self.instruction.setWordWrap(True)
         self.instruction.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         card.body.addWidget(self.instruction)
-        self.bar = QProgressBar()
-        self.bar.setTextVisible(False)
-        card.body.addWidget(self.bar)
         self.progress_text = muted("")
         card.body.addWidget(self.progress_text)
         self.step_status = QLabel("")
@@ -276,6 +275,9 @@ class FlybackPanel(QWidget):
         self.llk_line = pg.InfiniteLine(angle=0, movable=False, label="Llk max", labelOpts={"position": 0.8})
         self._restyle_limits(theme.c)
         theme.changed.connect(self._restyle_limits)
+        self.ease = {"lp": SmoothRange(self.lp_plot, padding=0), "llk": SmoothRange(self.llk_plot, padding=0)}
+        self._follow = True
+        watch_manual_zoom(self, self.lp_plot, self.llk_plot)
         charts.addWidget(self.lp_plot)
         charts.addWidget(self.llk_plot)
         body.addLayout(charts, 4)
@@ -333,7 +335,7 @@ class FlybackPanel(QWidget):
         if self.qs is not None:
             self.qs.setValue("flyback/profile", json.dumps(self.profile().to_dict()))
         self._rebuild_steps()
-        self._refresh_results()
+        self._results_changed()
 
     def _load_saved_profile(self):
         p = FlybackProfile()
@@ -420,26 +422,27 @@ class FlybackPanel(QWidget):
         self._set_running(True)
         self._rebuild_steps()
         self.worker.job(lambda m, ctx, s=step: run_step(m, ctx, s, p.settle, p.navg), tag=self.TAG)
+        self.busy = BusyDialog("Measuring", step.title, self.worker.abort_job, self)
+        self.busy.open_centered()
 
     def _set_running(self, on):
         self.run_btn.setEnabled(self.connected and not on)
         self.abort_btn.setEnabled(on)
         self.new_btn.setEnabled(not on)
-        if not on:
-            self.bar.setValue(0)
 
     def on_progress(self, tag, i, n, msg):
         if tag == self.TAG:
-            self.bar.setMaximum(n)
-            self.bar.setValue(i)
             self.progress_text.setText(msg)
+            if self.busy is not None:
+                detail = msg.split(" · ", 1)[1] if " · " in msg else msg
+                self.busy.progress(i, n, f"{detail}   ·   {i} / {n}")
 
     def on_partial(self, tag, data):
         if tag == self.TAG and self.running_key and data.get("step") == self.running_key:
             self.results[self.running_key]["rows"].append(data["row"])
             self._anim_t0 = time.monotonic()
             self._anim.start()
-            self._refresh_results()
+            self._results_changed()
 
     def on_done(self, tag, result):
         if tag != self.TAG or not self.running_key:
@@ -451,7 +454,7 @@ class FlybackPanel(QWidget):
         self._set_running(False)
         self.progress_text.setText("Aborted. Partial data kept." if result.get("aborted") else "Step complete.")
         self._rebuild_steps()
-        self._refresh_results()
+        self._results_changed()
         if not result.get("aborted"):
             nxt = next((i for i, s in enumerate(self.steps) if self.status.get(s.key) != "done"), None)
             if nxt is not None:
@@ -459,6 +462,9 @@ class FlybackPanel(QWidget):
                 self.progress_text.setText(f"Step complete. Wire up for step {nxt + 1} and press Run.")
             else:
                 self.progress_text.setText("All steps complete. Export the report.")
+        if self.busy is not None:
+            self.busy.finish(self.progress_text.text(), ok=not result.get("aborted"))
+            self.busy = None
 
     def on_error(self, tag, msg):
         if tag != self.TAG or not self.running_key:
@@ -469,11 +475,14 @@ class FlybackPanel(QWidget):
         self._set_running(False)
         self.progress_text.setText(f"Step failed: {msg}")
         self._rebuild_steps()
+        if self.busy is not None:
+            self.busy.finish(f"Failed: {msg}", ok=False, delay_ms=2500)
+            self.busy = None
 
     def new_unit(self):
         self.results, self.status = {}, {}
         self._rebuild_steps()
-        self._refresh_results()
+        self._results_changed()
         self.step_pick.setCurrentIndex(0)
 
     # =========================================================== results ==
@@ -507,6 +516,10 @@ class FlybackPanel(QWidget):
         self.llk_line.setPos(p.llk_max)
         return [p.llk_max]
 
+    def _results_changed(self):
+        self._follow = True                      # new data or limits: follow again after a manual zoom
+        self._refresh_results()
+
     def _refresh_results(self):
         if not hasattr(self, "summary"):
             return
@@ -536,7 +549,16 @@ class FlybackPanel(QWidget):
             if ys or limits:                     # keep the curves and the limits in view together
                 lo, hi = min(ys + limits), max(ys + limits)
                 pad = (hi - lo) * 0.12 or abs(hi) * 0.05 or 1e-9
-                item.getViewBox().setYRange(lo - pad, hi + pad, padding=0)
+                self.ease[key].set_target(lo - pad, hi + pad)
+        moving = False
+        if self._follow:
+            for e in self.ease.values():
+                moving = e.tick() or moving
+        if moving or self._anim_t0 is not None:     # keep the display timer running until everything settles
+            if not self._anim.isActive():
+                self._anim.start()
+        else:
+            self._anim.stop()
         rows, verdict = evaluate(p, self.results)
         self.summary.setRowCount(len(rows))
         c = theme.c

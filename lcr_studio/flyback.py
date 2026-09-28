@@ -128,7 +128,7 @@ def run_step(meter, ctx, step: Step, settle: int, navg: int) -> dict:
                 rows.append(row)
                 done += 1
                 ctx.partial({"step": step.key, "row": row})
-                ctx.progress(done, total, f"{step.title} · {lv} · {f}")
+                ctx.progress(done, total, f"{step.title} · {v_label(lv)} · {hz_label(f)}")
         if step.dcr:
             meter.set_primary("DCR")
             take(settle + 2)

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QHBoxLayout, Q
 from ..engmath import eng_parts, fmt, params_from_z, z_from_measurement
 from ..theme import SERIES, theme
 from ..ut622e import FREQ_HZ, RANGES, SECONDARY_LABEL, Reading
-from ..widgets import Badge, Card, RollAxis, field_label, make_plot, muted
+from ..widgets import Badge, Card, RollAxis, SmoothRange, field_label, make_plot, muted, watch_manual_zoom
 
 
 def fmt_secondary(stype, v):
@@ -60,9 +60,11 @@ class MeasurePanel(QWidget):
         self._dirty = False
         self._rate_times = []
         self._follow = True          # False after a manual zoom/pan, until Autoscale
-        self._yr = {}                # current (eased) y ranges per plot
-        self._target = {}            # y ranges the visible data asks for
         self._frame = 0
+        self._hist_cur = None        # eased histogram bar heights
+        self._hist_target = None
+        self._mean_cur = None
+        self._mean_target = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(6, 12, 12, 12)
@@ -211,8 +213,7 @@ class MeasurePanel(QWidget):
         self.pplot = make_plot("Primary", "", "Time", "s", bottom_axis=self.xaxes[0])
         self.splot = make_plot("Secondary", "", "Time", "s", bottom_axis=self.xaxes[1])
         self.splot.setXLink(self.pplot)
-        for plot in (self.pplot, self.splot):      # a manual zoom or pan stops the chart from following
-            plot.getViewBox().sigRangeChangedManually.connect(lambda *_: setattr(self, "_follow", False))
+        watch_manual_zoom(self, self.pplot, self.splot)
         self.pcurve = self.pplot.plot([], [])
         self.scurve = self.splot.plot([], [])
         self.mean_line = pg.InfiniteLine(angle=0, movable=False)
@@ -232,6 +233,8 @@ class MeasurePanel(QWidget):
         self.hplot.setFixedWidth(270)
         self.hist = pg.BarGraphItem(x=[], height=[], width=1)
         self.hplot.addItem(self.hist)
+        self.ease = {"p": SmoothRange(self.pplot), "s": SmoothRange(self.splot),
+                     "hx": SmoothRange(self.hplot, "x", 0.05), "hy": SmoothRange(self.hplot, "y", 0.05)}
         side.addWidget(self.hplot, 1)
         grid = QGridLayout()
         grid.setVerticalSpacing(2)
@@ -370,7 +373,9 @@ class MeasurePanel(QWidget):
     def reset_trend(self):
         self.t, self.p, self.s = [], [], []
         self._t0 = None
-        self._yr, self._target = {}, {}
+        for e in self.ease.values():
+            e.clear()
+        self._hist_cur = self._mean_cur = None
         self._mark()
 
     def _mark(self):
@@ -378,8 +383,8 @@ class MeasurePanel(QWidget):
 
     def _autoscale(self):
         self._follow = True
-        self._yr = {}
-        self.hplot.enableAutoRange()
+        for e in self.ease.values():
+            e.clear()
         self._mark()
 
     def _redraw(self):
@@ -401,9 +406,10 @@ class MeasurePanel(QWidget):
             self.pplot.setXRange(now - win, now, padding=0)
         else:
             self.pplot.setXRange(0.0, max(now, 1.0), padding=0.02)
-        self._ease_y(self.pplot, "p")
+        self.ease["p"].tick()
         if self.show_sec.isChecked():
-            self._ease_y(self.splot, "s")
+            self.ease["s"].tick()
+        self._tick_extras()
 
     def _rebuild(self, win, now, rate):
         t = np.asarray(self.t)
@@ -418,8 +424,16 @@ class MeasurePanel(QWidget):
             self.scurve.setData(t, s, connect="finite", antialias=aa)
         p = p[np.isfinite(p)]
         s = s[np.isfinite(s)]
-        self._target["p"] = (float(p.min()), float(p.max())) if len(p) else None
-        self._target["s"] = (float(s.min()), float(s.max())) if len(s) else None
+        if len(p):
+            lo, hi = float(p.min()), float(p.max())
+            if self.ref is not None:                     # keep the reference line in view
+                lo, hi = min(lo, self.ref), max(hi, self.ref)
+            if self.tol_band.isVisible():                # and the meter's tolerance window
+                blo, bhi = self.tol_band.getRegion()
+                lo, hi = min(lo, blo), max(hi, bhi)
+            self.ease["p"].set_target(lo, hi)
+        if len(s):
+            self.ease["s"].set_target(float(s.min()), float(s.max()))
         unit = self.last.punit if self.last else ""
         self.stats["Rate"].setText(f"{rate:.1f}/s")
         self.stats["N"].setText(str(len(p)))
@@ -431,43 +445,45 @@ class MeasurePanel(QWidget):
             self.stats["Min"].setText(fmt(float(p.min()), unit))
             self.stats["Max"].setText(fmt(float(p.max()), unit))
             self.stats["P–P"].setText(fmt(float(p.max() - p.min()), unit, 3))
-            self.mean_line.setPos(mean)
+            self._mean_target = mean
             self.mean_line.setVisible(self.show_mean.isChecked())
             bins = int(min(40, max(5, math.sqrt(len(p)))))
             if p.max() > p.min():
                 h, edges = np.histogram(p, bins=bins)
-                self.hist.setOpts(x=(edges[:-1] + edges[1:]) / 2, height=h, width=(edges[1] - edges[0]) * 0.9)
+                self._hist_target = ((edges[:-1] + edges[1:]) / 2, h.astype(float), (edges[1] - edges[0]) * 0.9)
             else:
-                self.hist.setOpts(x=[p[0]], height=[len(p)], width=abs(p[0]) * 1e-4 or 1e-12)
+                self._hist_target = (np.array([p[0]]), np.array([float(len(p))]), abs(p[0]) * 1e-4 or 1e-12)
         else:
             for k in ("Mean", "σ", "σ %", "Min", "Max", "P–P"):
                 self.stats[k].setText("—")
             self.mean_line.setVisible(False)
-            self.hist.setOpts(x=[], height=[], width=1)
+            self._hist_target = (np.array([]), np.array([]), 1.0)
+            self._hist_cur = None
         self.ref_line.setVisible(self.ref is not None)
         if self.ref is not None:
             self.ref_line.setPos(self.ref)
 
-    def _ease_y(self, plot, key):
-        """Move the y range a step toward the visible data's extent instead of snapping to it."""
-        tgt = self._target.get(key)
-        if tgt is None:
+    def _tick_extras(self):
+        """Ease the mean line and the histogram bars toward their new values, like the traces."""
+        if self._mean_target is not None:
+            cur = self._mean_cur
+            cur = self._mean_target if cur is None else cur + (self._mean_target - cur) * SmoothRange.K
+            self._mean_cur = cur
+            self.mean_line.setPos(cur)
+        if self._hist_target is None:
             return
-        lo, hi = tgt
-        if key == "p" and self.ref is not None:      # keep the reference line in view
-            lo, hi = min(lo, self.ref), max(hi, self.ref)
-        if key == "p" and self.tol_band.isVisible():  # and the meter's tolerance window
-            blo, bhi = self.tol_band.getRegion()
-            lo, hi = min(lo, blo), max(hi, bhi)
-        if hi <= lo:
-            pad = abs(lo) * 1e-4 or 1e-12
-            lo, hi = lo - pad, hi + pad
-        cur = self._yr.get(key)
-        if cur is None or not all(math.isfinite(v) for v in cur):
-            cur = (lo, hi)
+        x, h, wdt = self._hist_target
+        cur = self._hist_cur
+        if cur is None or len(cur) != len(h):
+            cur = h.copy()
         else:
-            cur = (cur[0] + (lo - cur[0]) * 0.2, cur[1] + (hi - cur[1]) * 0.2)   # settles in ~0.4 s
-            if abs(cur[0] - lo) < (hi - lo) * 1e-3 and abs(cur[1] - hi) < (hi - lo) * 1e-3:
-                cur = (lo, hi)
-        self._yr[key] = cur
-        plot.setYRange(cur[0], cur[1], padding=0.08)
+            cur = cur + (h - cur) * SmoothRange.K
+            if len(h) and np.abs(cur - h).max() < 0.01:
+                cur = h.copy()
+        self._hist_cur = cur
+        self.hist.setOpts(x=x, height=cur, width=wdt)
+        if len(x):
+            self.ease["hx"].set_target(float(x.min()) - wdt / 2, float(x.max()) + wdt / 2)
+            self.ease["hy"].set_target(0.0, float(max(h.max(), 1.0)))
+            self.ease["hx"].tick()
+            self.ease["hy"].tick()
