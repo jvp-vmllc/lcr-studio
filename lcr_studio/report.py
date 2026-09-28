@@ -162,27 +162,42 @@ def chart(cv: Canvas, x, y, w, h, title, series, unit, xs_kind="freq", mark=None
         cv.p.drawEllipse(QPointF(mx * cv.s, my * cv.s), 4.5 * cv.s, 4.5 * cv.s)
 
 
-def matrix_table(cv, x, y, w, title, result, unit):
+def loss_figures(row, equ):
+    """D, phase angle (degrees) and series/parallel resistance derived from the measured L and Q."""
+    q = row.get("Q")
+    if q is None:
+        return None, None, None
+    return (1 / q if q else None), math.degrees(math.atan(q)), esr_from(row, equ)
+
+
+def points_table(cv, x, y, w, title, result, equ):
+    """Every measured point of a step with the loss figures derived from Q. Returns the y below the table."""
     cv.text(x, y, w, 11, title, 7.6, True)
     y += 12
     if not result or not result["rows"]:
         cv.text(x, y, w, 12, "not measured", 7, color=FAINT)
-        return
-    freqs = [f for f in FREQUENCIES if any(r["freq"] == f for r in result["rows"])]
-    levels = [lv for lv in LEVELS if any(r["level"] == lv for r in result["rows"])]
-    cw = (w - 34) / len(freqs)
+        return y + 12
+    cols = [("Level", 0.11, Qt.AlignLeft), ("Freq", 0.13, Qt.AlignRight), ("L", 0.19, Qt.AlignRight),
+            ("D", 0.13, Qt.AlignRight), ("Q", 0.12, Qt.AlignRight), ("Phase", 0.13, Qt.AlignRight),
+            ("ESR (Rs)" if equ == "SER" else "Rp", 0.19, Qt.AlignRight)]
     cv.box(x, y, w, 11, fill="#eef2f8")
-    cv.text(x + 3, y, 30, 11, "Level", 6.4, True, MUTED)
-    for j, f in enumerate(freqs):
-        cv.text(x + 34 + j * cw, y, cw - 3, 11, hz_label(f), 6.4, True, MUTED, Qt.AlignRight | Qt.AlignVCenter)
-    for i, lv in enumerate(levels):
-        yy = y + 11 + i * 10.5
-        cv.text(x + 3, yy, 30, 10.5, v_label(lv), 6.6, color=MUTED)
-        for j, f in enumerate(freqs):
-            r = next((r for r in result["rows"] if r["freq"] == f and r["level"] == lv), None)
-            cv.text(x + 34 + j * cw, yy, cw - 3, 10.5, fmt(r["L"], unit) if r else "—", 6.6,
-                    align=Qt.AlignRight | Qt.AlignVCenter)
-        cv.line(x, yy + 10.5, x + w, yy + 10.5, GRID, 0.4)
+    cx = x
+    for name, frac, align in cols:
+        cv.text(cx + 3, y, w * frac - 6, 11, name, 6.4, True, MUTED, align | Qt.AlignVCenter)
+        cx += w * frac
+    y += 11
+    for row in sorted(result["rows"], key=lambda r: (LEVELS.index(r["level"]), r["hz"])):
+        d, theta, res = loss_figures(row, equ)
+        cells = [v_label(row["level"]), hz_label(row["freq"]), fmt(row["L"], "H"),
+                 f"{d:.4f}" if d is not None else "—", f"{row['Q']:.4g}" if row.get("Q") is not None else "—",
+                 f"{theta:.2f}°" if theta is not None else "—", fmt(res, "Ω") if res is not None else "—"]
+        cx = x
+        for (_, frac, align), text in zip(cols, cells):
+            cv.text(cx + 3, y, w * frac - 6, 10.5, text, 6.4, align=align | Qt.AlignVCenter)
+            cx += w * frac
+        cv.line(x, y + 10.5, x + w, y + 10.5, GRID, 0.4)
+        y += 10.5
+    return y
 
 
 def paint_report(painter: QPainter, dpi: float, profile: FlybackProfile, results: dict, meta: dict):
@@ -223,7 +238,7 @@ def paint_report(painter: QPainter, dpi: float, profile: FlybackProfile, results
 
     # --- results summary
     cols = [("Parameter", 0.30), ("Condition", 0.24), ("Measured", 0.20), ("Limit", 0.16), ("Result", 0.10)]
-    avail = 792 - MARGIN - 44 - 318 - 90   # leave room for charts, matrices and footer
+    avail = 792 - MARGIN - 44 - 350 - 90   # leave room for the charts, the point tables and the footer
     rh = max(9.0, min(12.5, (avail - 12) / max(1, len(rows))))
     cv.box(x0, y, W, 12, fill="#eef2f8")
     cx = x0
@@ -278,26 +293,12 @@ def paint_report(painter: QPainter, dpi: float, profile: FlybackProfile, results
           mark=spec_mark(lp_res, profile.lp_freq, profile.lp_level))
     chart(cv, x0 + chw + gap, y, chw, chh, "Leakage inductance Llk", per_level(llk_res), "H",
           mark=spec_mark(llk_res, profile.llk_freq, profile.llk_level))
-    y += chh + 6
+    y += chh + 8
 
-    level_series = []
-    for label, res, color, freq in (("Lp", lp_res, ACCENT, profile.lp_freq), ("Llk", llk_res, WARN, profile.llk_freq)):
-        if res:
-            label = f"{label} @ {hz_label(freq)}"
-            pts = [(r["level"], r["L"]) for r in res["rows"] if r["freq"] == freq]
-            pts.sort(key=lambda p: LEVELS.index(p[0]))
-            if pts:
-                base = pts[0][1]
-                level_series.append((label, color, [(lv, (v / base - 1) * 100) for lv, v in pts]))
-    chart(cv, x0, y, chw, chh, "Level dependence", level_series, "%",
-          xs_kind="level")
-    chart(cv, x0 + chw + gap, y, chw, chh, "Primary quality factor Q", per_level(lp_res, "Q"), "")
-    y += chh + 6
-
-    # --- matrices
-    matrix_table(cv, x0, y, chw, "Lp matrix (level × frequency)", lp_res, "H")
-    matrix_table(cv, x0 + chw + gap, y, chw, "Llk matrix (level × frequency)", llk_res, "H")
-    y += 12 + 11 + 10.5 * 3 + 8
+    # --- every measured point, with D, Q, phase and resistance derived from Q
+    y_lp = points_table(cv, x0, y, chw, "Lp points", lp_res, profile.lp_equ)
+    y_llk = points_table(cv, x0 + chw + gap, y, chw, "Llk points", llk_res, profile.llk_equ)
+    y = max(y_lp, y_llk) + 8
 
     # --- footer
     fy = PAGE_H - MARGIN - 40

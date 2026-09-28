@@ -5,7 +5,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from lcr_studio.flyback import FlybackProfile, build_steps, evaluate, run_step
-from lcr_studio.report import default_meta, export_pdf, render_image
+from lcr_studio.report import default_meta, export_pdf, loss_figures, render_image
 from lcr_studio.ut622e import SimulatedUT622E
 
 
@@ -113,3 +113,10 @@ def test_report_handles_a_decade_wide_leakage_sweep(measured):
             r["L"] *= 70
     img = render_image(p, wide, default_meta(), dpi=50)
     assert (img.width(), img.height()) == (425, 550)
+
+
+def test_loss_figures_follow_from_q():
+    row = {"hz": 10000.0, "L": 1e-3, "Q": 2.0}
+    d, theta, rs = loss_figures(row, "SER")
+    assert d == 0.5 and abs(theta - 63.435) < 0.01 and abs(rs - 2 * 3.141592653589793 * 10000 * 1e-3 / 2) < 1e-9
+    assert loss_figures({"hz": 1.0, "L": 1.0, "Q": None}, "SER") == (None, None, None)

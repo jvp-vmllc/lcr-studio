@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QF
 from .. import __version__
 from ..engmath import fmt
 from ..flyback import FlybackProfile, build_steps, evaluate, hz_label, run_step, v_label
+from ..report import loss_figures
 from ..report import LEVEL_COLORS, default_meta, export_pdf, render_image
 from ..theme import theme
 from ..ut622e import FREQ_HZ, FREQUENCIES, LEVELS
@@ -740,10 +741,13 @@ class FlybackPanel(QWidget):
         names = {"lp": "Lp (open)", "llk": "Llk (shorted)"}
         for key, res in self.results.items():
             sh = wb.create_sheet(names.get(key, key)[:31])
-            sh.append(["Level", "Frequency (Hz)", "L (H)", "L σ (H)", "Q", "Model"])
+            equ = res.get("equ")
+            sh.append(["Level", "Frequency (Hz)", "L (H)", "L σ (H)", "Q", "D", "Phase (°)",
+                       "Rs (Ω)" if equ == "SER" else "Rp (Ω)", "Model"])
             for c in sh[1]:
                 c.font = Font(bold=True)
             for r in res["rows"]:
-                sh.append([r["level"], r["hz"], r["L"], r["L_sd"], r["Q"], res.get("equ")])
+                d, theta, rr = loss_figures(r, equ)
+                sh.append([r["level"], r["hz"], r["L"], r["L_sd"], r["Q"], d, theta, rr, equ])
         wb.save(path)
         self.progress_text.setText(f"Data saved: {path}")
