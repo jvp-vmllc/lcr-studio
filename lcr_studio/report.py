@@ -267,7 +267,7 @@ def paint_report(painter: QPainter, dpi: float, profile: FlybackProfile, results
             if pts:
                 base = pts[0][1]
                 level_series.append((label, color, [(lv, (v / base - 1) * 100) for lv, v in pts]))
-    chart(cv, x0, y, chw, chh, "Level dependence at the test frequency", level_series, "%",
+    chart(cv, x0, y, chw, chh, "Level dependence", level_series, "%",
           xs_kind="level")
     chart(cv, x0 + chw + gap, y, chw, chh, "Primary quality factor Q", per_level(lp_res, "Q"), "")
     y += chh + 6

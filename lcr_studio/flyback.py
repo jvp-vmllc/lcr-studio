@@ -217,7 +217,7 @@ def evaluate(p: FlybackProfile, results: dict) -> tuple[list[dict], str]:
         lvs = [r for r in lp_res["rows"] if r["freq"] == f]
         if len(lvs) > 1:
             first, last = lvs[0], lvs[-1]
-            add("Lp level dependence", f"{hz_label(f)}, {v_label(first['level'])} → {v_label(last['level'])}",
+            add("Lp level dependence", f"{hz_label(f)}, {v_label(first['level'])} to {v_label(last['level'])}",
                 f"{(last['L'] / first['L'] - 1) * 100:+.3f} %")
 
     statuses = [r["status"] for r in rows]
