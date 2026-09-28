@@ -72,7 +72,7 @@ theme.apply("dark")
 
 # Flyback — Lp and Llk on the simulated transformer
 fb = w.flyback
-fb.set_profile(FlybackProfile(part_number="FBT-EE25-12V", dcr_max=0.5,
+fb.set_profile(FlybackProfile(part_number="FBT-EE25-12V",
                               lp_nom=620e-6, lp_tol=10, llk_max=15e-6, llk_pct_max=2.5))
 w.tabs.setCurrentWidget(fb)
 for i in range(len(fb.steps)):

@@ -47,7 +47,7 @@ def test_main_window_streams_demo_readings(tmp_path):
         assert fb.busy is None and fb.running_key is None
         fb.set_profile(FlybackProfile(part_number="T", settle=0, navg=1, freqs=["1kHz"], levels=["0.3V"],
                                       spec_freq="1kHz", spec_level="0.3V", lp_nom=620e-6, llk_max=15e-6,
-                                      llk_pct_max=2.5, dcr_max=0.5))
+                                      llk_pct_max=2.5))
         assert fb.run_btn.isEnabled()
         fb.step_pick.setCurrentIndex(0)
         fb.run_selected()

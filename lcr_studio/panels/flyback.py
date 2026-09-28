@@ -143,13 +143,11 @@ class FlybackPanel(QWidget):
         self.lp_tol.setValue(10)
         self.llk_max = EngEdit("e.g. 15u", "H")
         self.llk_pct = EngEdit("e.g. 2.5")
-        self.dcr_max = EngEdit("e.g. 0.5", "Ω")
         self.lp_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
         self.llk_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
         rows = [("Test frequency", self.spec_freq), ("Test level", self.spec_level), ("Lp nominal", self.lp_nom),
                 ("Lp tolerance ±", self.lp_tol), ("Llk max", self.llk_max), ("Llk / Lp max (%)", self.llk_pct),
-                ("Primary DCR max", self.dcr_max), ("Lp circuit model", self.lp_equ),
-                ("Llk circuit model", self.llk_equ)]
+                ("Lp circuit model", self.lp_equ), ("Llk circuit model", self.llk_equ)]
         for i, (lab, wdg) in enumerate(rows):
             g.addWidget(field_label(lab), i, 0)
             g.addWidget(wdg, i, 1)
@@ -193,7 +191,7 @@ class FlybackPanel(QWidget):
         col.addStretch(1)
 
         self.part.textChanged.connect(lambda _t: self._profile_changed())
-        for w in (self.lp_nom, self.llk_max, self.llk_pct, self.dcr_max):
+        for w in (self.lp_nom, self.llk_max, self.llk_pct):
             w.valueChanged.connect(lambda _v: self._profile_changed())
         for w in (self.spec_freq, self.spec_level):
             w.currentIndexChanged.connect(lambda _i: self._profile_changed())
@@ -302,7 +300,7 @@ class FlybackPanel(QWidget):
             part_number=self.part.text().strip(),
             spec_freq=self.spec_freq.currentData(), spec_level=self.spec_level.currentData(),
             lp_nom=self.lp_nom.value(), lp_tol=self.lp_tol.value(), llk_max=self.llk_max.value(),
-            llk_pct_max=self.llk_pct.value(), dcr_max=self.dcr_max.value(), lp_equ=self.lp_equ.value() or "SER", llk_equ=self.llk_equ.value() or "SER",
+            llk_pct_max=self.llk_pct.value(), lp_equ=self.lp_equ.value() or "SER", llk_equ=self.llk_equ.value() or "SER",
             freqs=[f for f, cb in self.freq_boxes.items() if cb.isChecked()],
             levels=[lv for lv, cb in self.level_boxes.items() if cb.isChecked()],
             settle=self.settle.value(), navg=self.navg.value())
@@ -317,7 +315,6 @@ class FlybackPanel(QWidget):
             self.lp_tol.setValue(p.lp_tol)
             self.llk_max.set_value(p.llk_max, 4)
             self.llk_pct.setText("" if p.llk_pct_max is None else f"{p.llk_pct_max:g}")
-            self.dcr_max.set_value(p.dcr_max, 4)
             self.lp_equ.set_value(p.lp_equ)
             self.llk_equ.set_value(p.llk_equ)
             for f, cb in self.freq_boxes.items():
@@ -415,7 +412,7 @@ class FlybackPanel(QWidget):
     def _spec_complete(self) -> bool:
         """Every limit in Specification holds a positive value."""
         return all(v is not None and v > 0 for v in (self.lp_nom.value(), self.llk_max.value(),
-                                                     self.llk_pct.value(), self.dcr_max.value()))
+                                                     self.llk_pct.value()))
 
     def _update_run_enabled(self):
         ok = self._spec_complete()

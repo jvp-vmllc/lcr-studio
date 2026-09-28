@@ -28,7 +28,6 @@ class FlybackProfile:
     lp_tol: float = 10.0
     llk_max: float | None = None
     llk_pct_max: float | None = None
-    dcr_max: float | None = None
     lp_equ: str = "SER"
     llk_equ: str = "SER"
     freqs: list[str] = field(default_factory=lambda: list(FREQUENCIES))
@@ -42,8 +41,6 @@ class FlybackProfile:
     @classmethod
     def from_dict(cls, d: dict) -> "FlybackProfile":
         d = dict(d)
-        if "dcr_max" not in d and isinstance(d.get("primary"), dict):     # profiles saved before v2
-            d["dcr_max"] = d["primary"].get("dcr_max")
         known = cls.__dataclass_fields__.keys()
         return cls(**{k: v for k, v in d.items() if k in known})
 
@@ -225,12 +222,7 @@ def evaluate(p: FlybackProfile, results: dict) -> tuple[list[dict], str]:
                 f"{(last['L'] / first['L'] - 1) * 100:+.3f} %")
 
     if lp_res and lp_res.get("dcr") is not None:
-        dcr = lp_res["dcr"]
-        if p.dcr_max:
-            add("Primary DCR", "DC", fmt(dcr, "Ω"), f"≤ {fmt(p.dcr_max, 'Ω', 4)}",
-                "PASS" if dcr <= p.dcr_max else "FAIL")
-        else:
-            add("Primary DCR", "DC", fmt(dcr, "Ω"))
+        add("Primary DCR", "DC", fmt(lp_res["dcr"], "Ω"))
 
     statuses = [r["status"] for r in rows]
     required = ["lp", "llk"]

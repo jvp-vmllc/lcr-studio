@@ -28,7 +28,7 @@ def measured():
     meter.set_speed("FAST")
     meter.set_frequency("1kHz")
     meter.set_primary("C")
-    p = FlybackProfile(part_number="T1", dcr_max=0.5,
+    p = FlybackProfile(part_number="T1",
                        lp_nom=620e-6, lp_tol=10, llk_max=15e-6, llk_pct_max=2.5, settle=0, navg=1,
                        freqs=["1kHz", "10kHz"], levels=["0.1V", "1.0V"])
     results = {}
@@ -48,7 +48,7 @@ def test_profile_loads_pre_v2_json():
     old = {"part_number": "X", "description": "gone", "primary": {"name": "Primary", "pins": "1-3", "dcr_max": 0.4},
            "secondaries": [{"name": "S", "pins": "7-9"}], "lp_nom": 1e-3}
     p = FlybackProfile.from_dict(old)
-    assert (p.part_number, p.dcr_max, p.lp_nom) == ("X", 0.4, 1e-3)
+    assert (p.part_number, p.lp_nom) == ("X", 1e-3)
 
 
 def test_measurements_and_meter_restored(measured):
@@ -68,7 +68,7 @@ def test_evaluation_passes_and_fails(measured):
     status = {r["param"]: r["status"] for r in rows}
     assert status["Primary inductance Lp"] == "PASS"
     assert status["Leakage inductance Llk"] == "PASS"
-    assert status["Primary DCR"] == "PASS"
+    assert status["Primary DCR"] == "INFO"                  # measured, no limit
     assert not any(r["param"].startswith(("12V", "Aux", "Turns ratio")) for r in rows)   # no secondary rows
     k = next(r for r in rows if r["param"] == "Coupling coefficient k")
     assert 0.99 < float(k["value"]) < 1.0
