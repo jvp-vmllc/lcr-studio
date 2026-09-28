@@ -142,8 +142,8 @@ class FlybackPanel(QWidget):
         self.lp_tol.setSuffix(" %")
         self.lp_tol.setValue(10)
         self.llk_max = EngEdit("e.g. 15u", "H")
-        self.llk_pct = EngEdit("e.g. 2.5 (optional)")
-        self.dcr_max = EngEdit("e.g. 0.5 (optional)", "Ω")
+        self.llk_pct = EngEdit("e.g. 2.5")
+        self.dcr_max = EngEdit("e.g. 0.5", "Ω")
         self.lp_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
         self.llk_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
         rows = [("Test frequency", self.spec_freq), ("Test level", self.spec_level), ("Lp nominal", self.lp_nom),
@@ -154,7 +154,8 @@ class FlybackPanel(QWidget):
             g.addWidget(field_label(lab), i, 0)
             g.addWidget(wdg, i, 1)
         spec.body.addLayout(g)
-        spec.body.addWidget(muted("Leave a limit empty to skip its pass/fail check."))
+        self.spec_hint = muted("")
+        spec.body.addWidget(self.spec_hint)
         col.addWidget(spec)
 
         mat = Card("Test matrix")
@@ -336,6 +337,7 @@ class FlybackPanel(QWidget):
             self.qs.setValue("flyback/profile", json.dumps(self.profile().to_dict()))
         self._rebuild_steps()
         self._results_changed()
+        self._update_run_enabled()
 
     def _load_saved_profile(self):
         p = FlybackProfile()
@@ -410,9 +412,21 @@ class FlybackPanel(QWidget):
                                  f"{', '.join(hz_label(f) for f in s.freqs)} × {', '.join(v_label(v) for v in s.levels)}"
                                  f"{' + DCR' if s.dcr else ''} · {'series' if s.equ == 'SER' else 'parallel'} model</span>")
 
+    def _spec_complete(self) -> bool:
+        """Every limit in Specification holds a positive value."""
+        return all(v is not None and v > 0 for v in (self.lp_nom.value(), self.llk_max.value(),
+                                                     self.llk_pct.value(), self.dcr_max.value()))
+
+    def _update_run_enabled(self):
+        ok = self._spec_complete()
+        self.run_btn.setEnabled(self.connected and not self.running_key and ok)
+        self.run_btn.setToolTip("" if ok else "Fill in every limit in Specification first")
+        self.spec_hint.setText("Limits are checked at the test frequency and level." if ok else
+                               "Fill in every limit to enable Run step.")
+
     def run_selected(self):
         i = self.step_pick.currentIndex()
-        if not (0 <= i < len(self.steps)) or self.running_key:
+        if not (0 <= i < len(self.steps)) or self.running_key or not self._spec_complete():
             return
         step = self.steps[i]
         p = self.profile()
@@ -426,9 +440,9 @@ class FlybackPanel(QWidget):
         self.busy.open_centered()
 
     def _set_running(self, on):
-        self.run_btn.setEnabled(self.connected and not on)
         self.abort_btn.setEnabled(on)
         self.new_btn.setEnabled(not on)
+        self._update_run_enabled()
 
     def on_progress(self, tag, i, n, msg):
         if tag == self.TAG:
