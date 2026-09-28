@@ -70,6 +70,7 @@ class FlybackPanel(QWidget):
         self.meta = {"meter": "—", "speed": "?", "correction": "—"}
         self._loading = False
         self.busy = None                      # pop-up shown while a step runs
+        self.queue: list[str] = []            # ticked steps still to run after the current one
         self._anim_t0 = None
         self._anim = QTimer(self)             # redraws while the newest point grows in
         self._anim.setInterval(16)
@@ -209,22 +210,24 @@ class FlybackPanel(QWidget):
     # ============================================================ steps ==
     def _build_steps(self):
         card = Card("Run test")
+        self.step_grid = QGridLayout()
+        self.step_grid.setHorizontalSpacing(14)
+        self.step_grid.setVerticalSpacing(4)
+        self.step_grid.setColumnStretch(2, 1)
+        self.step_boxes: dict[str, QCheckBox] = {}
+        self.step_status: dict[str, QLabel] = {}
+        card.body.addLayout(self.step_grid)
         row = QHBoxLayout()
-        row.addWidget(field_label("Step"))
-        self.step_pick = QComboBox()
-        self.step_pick.setToolTip("Measurement to run")
-        self.step_pick.currentIndexChanged.connect(lambda _i: self._show_step())
-        row.addWidget(self.step_pick, 1)
-        self.run_btn = QPushButton("Run step")
+        self.run_btn = QPushButton("Run ticked steps")
         self.run_btn.setObjectName("Accent")
-        self.run_btn.clicked.connect(self.run_selected)
+        self.run_btn.clicked.connect(self.run_ticked)
         self.abort_btn = QPushButton("Abort")
         self.abort_btn.setEnabled(False)
         self.abort_btn.clicked.connect(self.worker.abort_job)
         self.new_btn = QPushButton("New unit")
         self.new_btn.setToolTip("Clear results for the next transformer (keeps the profile)")
         self.new_btn.clicked.connect(self.new_unit)
-        row.addWidget(self.run_btn)
+        row.addWidget(self.run_btn, 1)
         row.addWidget(self.abort_btn)
         row.addWidget(self.new_btn)
         card.body.addLayout(row)
@@ -234,9 +237,6 @@ class FlybackPanel(QWidget):
         card.body.addWidget(self.instruction)
         self.progress_text = muted("")
         card.body.addWidget(self.progress_text)
-        self.step_status = QLabel("")
-        self.step_status.setWordWrap(True)
-        card.body.addWidget(self.step_status)
         self.hint = muted("Run open/short correction on the meter with the same leads before testing.")
         card.body.addWidget(self.hint)
         return card
@@ -370,22 +370,23 @@ class FlybackPanel(QWidget):
         self.steps = build_steps(self.profile())
         keys = {s.key for s in self.steps}
         self.results = {k: v for k, v in self.results.items() if k in keys}
-        cur = max(self.step_pick.currentIndex(), 0)
-        self.step_pick.blockSignals(True)
-        self.step_pick.clear()
         for i, s in enumerate(self.steps):
-            self.step_pick.addItem(f"{i + 1}. {s.title}", s.key)
-        self.step_pick.setCurrentIndex(min(cur, len(self.steps) - 1))
-        self.step_pick.blockSignals(False)
-        lines = []
-        for i, s in enumerate(self.steps):
+            if s.key not in self.step_boxes:
+                box = QCheckBox()
+                box.setChecked(True)
+                box.toggled.connect(lambda _on: self._show_step())
+                label = QLabel("")
+                self.step_grid.addWidget(box, i, 0)
+                self.step_grid.addWidget(label, i, 1)
+                self.step_boxes[s.key], self.step_status[s.key] = box, label
+            self.step_boxes[s.key].setText(f"{i + 1}. {s.title}")
+            self.step_boxes[s.key].setEnabled(not self.running_key)
             st = self.status.get(s.key, "pending")
             kind = STATUS_KIND.get(st, "")
             color = theme.c.get(kind, theme.c["muted"]) if kind else theme.c["muted"]
             summary = self._step_summary(s.key)
-            lines.append(f"{i + 1}. {s.title}: <b style='color:{color}'>{st.upper()}</b>"
-                         + (f" · {summary}" if summary else ""))
-        self.step_status.setText("<br>".join(lines))
+            self.step_status[s.key].setText(f"<b style='color:{color}'>{st.upper()}</b>"
+                                            + (f" · {summary}" if summary else ""))
         self._show_step()
 
     def _step_summary(self, key):
@@ -394,22 +395,29 @@ class FlybackPanel(QWidget):
             return ""
         p = self.profile()
         pt = next((r for r in res["rows"] if r["freq"] == p.spec_freq and r["level"] == p.spec_level), res["rows"][-1])
-        text = fmt(pt["L"], "H", 4)
-        return text
+        return fmt(pt["L"], "H", 4)
+
+    def _ticked(self):
+        return [s for s in self.steps if self.step_boxes[s.key].isChecked()]
+
+    def _next_step(self):
+        """The ticked step that runs next: the first not yet done, else the first ticked."""
+        ticked = self._ticked()
+        return next((s for s in ticked if self.status.get(s.key) != "done"), ticked[0] if ticked else None)
 
     def _show_step(self):
-        i = self.step_pick.currentIndex()
-        if not (0 <= i < len(self.steps)):
+        s = self._next_step()
+        if s is None:
+            self.instruction.setText("Tick the steps to run.")
             return
-        s = self.steps[i]
         n = len(s.freqs) * len(s.levels)
-        self.instruction.setText(f"<b>{s.title}</b><br>{s.instruction}<br>"
+        self.instruction.setText(f"<b>Next: {s.title}</b><br>{s.instruction}<br>"
                                  f"<span style='color:{theme.c['muted']}'>{n} point(s): "
                                  f"{', '.join(hz_label(f) for f in s.freqs)} × {', '.join(v_label(v) for v in s.levels)}"
                                  f" · {'series' if s.equ == 'SER' else 'parallel'} model</span>")
 
     def _spec_complete(self) -> bool:
-        """Every limit in Specification holds a positive value."""
+        """Every limit in the specification holds a positive value."""
         return all(v is not None and v > 0 for v in (self.lp_nom.value(), self.llk_max.value(),
                                                      self.llk_pct.value()))
 
@@ -422,24 +430,34 @@ class FlybackPanel(QWidget):
             self.spec_hint.setText("Fill in every limit to run a step.")
 
     def _flag_missing(self):
-        """Run step was pressed with limits missing: say so and jump to the first empty one."""
+        """Run was pressed with limits missing: say so and jump to the first empty one."""
         self.spec_hint.setText("⚠ Fill in every limit before running a step.")
         self.spec_hint.setStyleSheet(f"color: {theme.c['bad']};")
-        self.progress_text.setText("Fill in every limit in Specification first.")
+        self.progress_text.setText("Fill in every limit in the specification first.")
         for w in (self.lp_nom, self.llk_max, self.llk_pct):
             if w.value() is None or w.value() <= 0:
                 self.setup_scroll.ensureWidgetVisible(w)
                 w.setFocus()
                 break
 
-    def run_selected(self):
-        i = self.step_pick.currentIndex()
-        if not (0 <= i < len(self.steps)) or self.running_key:
+    def run_ticked(self):
+        """Run every ticked step in order, asking to rewire between steps."""
+        if self.running_key:
             return
         if not self._spec_complete():
             self._flag_missing()
             return
-        step = self.steps[i]
+        ticked = self._ticked()
+        if not ticked:
+            self.progress_text.setText("Tick at least one step.")
+            return
+        self.queue = [s.key for s in ticked[1:]]
+        self.run_step(ticked[0].key)
+
+    def run_step(self, key: str):
+        step = next((s for s in self.steps if s.key == key), None)
+        if step is None or self.running_key or not self._spec_complete():
+            return
         p = self.profile()
         self.running_key = step.key
         self.status[step.key] = "running"
@@ -449,6 +467,19 @@ class FlybackPanel(QWidget):
         self.worker.job(lambda m, ctx, s=step: run_step(m, ctx, s, p.settle, p.navg), tag=self.TAG)
         self.busy = BusyDialog("Measuring", step.title, self.worker.abort_job, self)
         self.busy.open_centered()
+
+    def _continue_queue(self, key):
+        if self.busy is not None:
+            self.busy.accept()
+            self.busy = None
+        self.run_step(key)
+
+    def _stop_queue(self):
+        self.queue = []
+        if self.busy is not None:
+            self.busy.accept()
+            self.busy = None
+        self.progress_text.setText("Stopped. The remaining ticked steps were not run.")
 
     def _set_running(self, on):
         self.abort_btn.setEnabled(on)
@@ -475,25 +506,34 @@ class FlybackPanel(QWidget):
         key = self.running_key
         self.running_key = None
         self.results[key] = result
-        self.status[key] = "aborted" if result.get("aborted") else "done"
+        aborted = bool(result.get("aborted"))
+        self.status[key] = "aborted" if aborted else "done"
         self._set_running(False)
-        self.progress_text.setText("Aborted. Partial data kept." if result.get("aborted") else "Step complete.")
         self._rebuild_steps()
         self._results_changed()
-        if not result.get("aborted"):
-            nxt = next((i for i, s in enumerate(self.steps) if self.status.get(s.key) != "done"), None)
-            if nxt is not None:
-                self.step_pick.setCurrentIndex(nxt)
-                self.progress_text.setText(f"Step complete. Wire up for step {nxt + 1} and press Run.")
-            else:
-                self.progress_text.setText("All steps complete. Export the report.")
+        if aborted:
+            self.queue = []
+            self.progress_text.setText("Aborted. Partial data kept.")
+        elif self.queue:
+            nxt = next(s for s in self.steps if s.key == self.queue.pop(0))
+            self.progress_text.setText(f"Step complete. Wire up for {nxt.title}.")
+            if self.busy is not None:                # same pop-up: what to wire next, Continue or Stop
+                self.busy.prompt("Next step", nxt.title, nxt.instruction,
+                                 on_continue=lambda _=False, k=nxt.key: self._continue_queue(k),
+                                 on_stop=self._stop_queue)
+            return
+        elif all(self.status.get(s.key) == "done" for s in self._ticked()):
+            self.progress_text.setText("All steps complete. Export the report.")
+        else:
+            self.progress_text.setText("Step complete.")
         if self.busy is not None:
-            self.busy.finish(self.progress_text.text(), ok=not result.get("aborted"))
+            self.busy.finish(self.progress_text.text(), ok=not aborted)
             self.busy = None
 
     def on_error(self, tag, msg):
         if tag != self.TAG or not self.running_key:
             return
+        self.queue = []
         self.status[self.running_key] = "error"
         self.results.pop(self.running_key, None)
         self.running_key = None
@@ -505,10 +545,10 @@ class FlybackPanel(QWidget):
             self.busy = None
 
     def new_unit(self):
+        self.queue = []
         self.results, self.status = {}, {}
         self._rebuild_steps()
         self._results_changed()
-        self.step_pick.setCurrentIndex(0)
 
     # =========================================================== results ==
     def _restyle_limits(self, c):

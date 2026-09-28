@@ -75,11 +75,9 @@ fb = w.flyback
 fb.set_profile(FlybackProfile(part_number="FBT-EE25-12V",
                               lp_nom=620e-6, lp_tol=10, llk_max=15e-6, llk_pct_max=2.5))
 w.tabs.setCurrentWidget(fb)
-for i in range(len(fb.steps)):
-    fb.step_pick.setCurrentIndex(i)
-    fb.run_selected()
+for s in fb.steps:
+    fb.run_step(s.key)
     wait_until(lambda: fb.running_key is None, 180)
-fb.step_pick.setCurrentIndex(1)
 shot("flyback", fb)
 render_image(fb.profile(), fb.results, fb._meta(), dpi=110).save(str(OUT / "flyback-report.png"))
 print("saved flyback-report", flush=True)

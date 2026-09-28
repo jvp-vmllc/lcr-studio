@@ -225,6 +225,7 @@ class BusyDialog(QDialog):
         self.setModal(True)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self._on_abort = on_abort
+        self._on_stop = None
         self._running = True
         frame = QFrame(self)
         frame.setObjectName("Card")
@@ -258,6 +259,10 @@ class BusyDialog(QDialog):
         self.abort_btn = QPushButton("Abort")
         self.abort_btn.clicked.connect(self._abort)
         row.addWidget(self.abort_btn)
+        self.continue_btn = QPushButton("Continue")
+        self.continue_btn.setObjectName("Accent")
+        self.continue_btn.hide()
+        row.addWidget(self.continue_btn)
         lay.addLayout(row)
         self.setMinimumWidth(440)
 
@@ -284,13 +289,32 @@ class BusyDialog(QDialog):
             self.bar.setValue(self.bar.maximum())
         QTimer.singleShot(delay_ms, self.accept)
 
+    def prompt(self, kicker: str, title: str, text: str, on_continue, on_stop):
+        """Between steps: show what to wire up next and wait for Continue or Stop."""
+        self._running = False
+        self._on_stop = on_stop
+        self.spinner.stop()
+        self.kicker.setText(kicker.upper())
+        self.title.setText(title)
+        self.detail.setText(text)
+        self.bar.hide()
+        self.abort_btn.setText("Stop")
+        self.abort_btn.setEnabled(True)
+        self.continue_btn.clicked.connect(on_continue)
+        self.continue_btn.show()
+        self.continue_btn.setFocus()
+        self.adjustSize()
+
     def _abort(self):
         self.abort_btn.setEnabled(False)
+        if self._on_stop is not None:
+            self._on_stop()
+            return
         self.detail.setText("Stopping…")
         self._on_abort()
 
-    def reject(self):                      # Esc: abort the job instead of hiding the dialog while it runs
-        if self._running:
+    def reject(self):                      # Esc acts as Abort / Stop instead of hiding the dialog
+        if self._running or self.continue_btn.isVisible():
             self._abort()
         else:
             super().reject()
