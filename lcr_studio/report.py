@@ -191,8 +191,9 @@ def paint_report(painter: QPainter, dpi: float, profile: FlybackProfile, results
     info = [
         ("Part number", profile.part_number or "—"), ("Station", meta.get("station") or "—"),
         ("Date", meta.get("date", "")),
-        ("Instrument", meta.get("meter", "—")), ("Lp · Llk condition", f"{hz_label(profile.lp_freq)}, {v_label(profile.lp_level)} · "
-                              f"{hz_label(profile.llk_freq)}, {v_label(profile.llk_level)}"),
+        ("Instrument", meta.get("meter", "—")),
+        ("Lp test condition", f"{hz_label(profile.lp_freq)}, {v_label(profile.lp_level)} rms"),
+        ("Llk test condition", f"{hz_label(profile.llk_freq)}, {v_label(profile.llk_level)} rms"),
         ("Speed · averaging", f"{meta.get('speed', '?')} · settle {profile.settle}, avg {profile.navg}"),
         ("Open / short corr.", meta.get("correction", "—")),
     ]
