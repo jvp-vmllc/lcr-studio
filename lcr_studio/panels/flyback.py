@@ -20,7 +20,7 @@ from ..flyback import FlybackProfile, build_steps, evaluate, hz_label, run_step,
 from ..report import LEVEL_COLORS, default_meta, export_pdf, render_image
 from ..theme import theme
 from ..ut622e import FREQ_HZ, FREQUENCIES, LEVELS
-from ..widgets import (Badge, BusyDialog, Card, EngEdit, Segmented, SmoothRange, field_label, make_plot, muted,
+from ..widgets import (Badge, BusyDialog, Card, Segmented, SmoothRange, UnitEdit, field_label, make_plot, muted,
                        plot_series, range_with_limits, reveal_fraction, watch_manual_zoom)
 
 STATUS_KIND = {"done": "good", "running": "accent", "aborted": "warn", "error": "bad", "pending": ""}
@@ -137,13 +137,13 @@ class FlybackPanel(QWidget):
         self.spec_level = QComboBox()
         for lv in LEVELS:
             self.spec_level.addItem(v_label(lv), lv)
-        self.lp_nom = EngEdit("e.g. 620u", "H", required=True)
+        self.lp_nom = UnitEdit("H", required=True)
         self.lp_tol = QDoubleSpinBox()
         self.lp_tol.setRange(0.1, 50)
         self.lp_tol.setSuffix(" %")
         self.lp_tol.setValue(10)
-        self.llk_max = EngEdit("e.g. 15u", "H", required=True)
-        self.llk_pct = EngEdit("e.g. 2.5", required=True)
+        self.llk_max = UnitEdit("H", required=True)
+        self.llk_pct = UnitEdit("%", prefixes=("",), required=True)
         self.lp_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
         self.llk_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
         rows = [("Test frequency", self.spec_freq), ("Test level", self.spec_level), ("Lp nominal", self.lp_nom),
@@ -315,7 +315,7 @@ class FlybackPanel(QWidget):
             self.lp_nom.set_value(p.lp_nom, 4)
             self.lp_tol.setValue(p.lp_tol)
             self.llk_max.set_value(p.llk_max, 4)
-            self.llk_pct.setText("" if p.llk_pct_max is None else f"{p.llk_pct_max:g}")
+            self.llk_pct.set_value(p.llk_pct_max)
             self.lp_equ.set_value(p.lp_equ)
             self.llk_equ.set_value(p.llk_equ)
             for f, cb in self.freq_boxes.items():

@@ -7,13 +7,12 @@ import time
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import (QButtonGroup, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QMessageBox, QProgressBar, QPushButton, QSizePolicy, QVBoxLayout,
-                               QWidget)
+from PySide6.QtCore import QLocale, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QDoubleValidator, QPainter, QPen
+from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
+                               QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QSizePolicy,
+                               QVBoxLayout, QWidget)
 
-from .engmath import fmt, parse_eng
 from .theme import repolish, style_plot, theme
 
 pg.setConfigOptions(antialias=True)
@@ -107,6 +106,83 @@ def muted(text: str = "") -> QLabel:
     lab.setObjectName("Muted")
     lab.setWordWrap(True)
     return lab
+
+
+PREFIX_SCALE = {"p": 1e-12, "n": 1e-9, "µ": 1e-6, "m": 1e-3, "": 1.0, "k": 1e3, "M": 1e6}
+
+
+class UnitEdit(QWidget):
+    """Number box plus a unit drop-down (620 | µH): nothing to type but the number, so no unit mistakes.
+
+    value() is in base units (H, %, ...); None while empty or not positive. A required field is outlined
+    in red until it holds a value.
+    """
+
+    valueChanged = Signal(object)
+
+    def __init__(self, unit: str, prefixes=("n", "µ", "m", ""), default: str = "µ", required: bool = False,
+                 parent=None):
+        super().__init__(parent)
+        self.unit, self.prefixes, self.required = unit, list(prefixes), required
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+        self.edit = QLineEdit()
+        validator = QDoubleValidator(0.0, 1e12, 6, self.edit)
+        validator.setNotation(QDoubleValidator.StandardNotation)
+        validator.setLocale(QLocale.c())
+        self.edit.setValidator(validator)
+        self.edit.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lay.addWidget(self.edit, 1)
+        if len(self.prefixes) > 1:
+            self.combo = QComboBox()
+            for p in self.prefixes:
+                self.combo.addItem(f"{p}{unit}", p)
+            self.combo.setCurrentIndex(self.prefixes.index(default) if default in self.prefixes else 0)
+            self.combo.currentIndexChanged.connect(lambda _i: self._changed())
+            lay.addWidget(self.combo)
+        else:
+            self.combo = None
+            lay.addWidget(field_label(f"{self.prefixes[0]}{unit}"))
+        self.edit.textChanged.connect(lambda _t: self._changed())
+        self._changed()
+
+    def _scale(self) -> float:
+        prefix = self.combo.currentData() if self.combo is not None else self.prefixes[0]
+        return PREFIX_SCALE.get(prefix, 1.0)
+
+    def value(self):
+        try:
+            n = float(self.edit.text().replace(",", "."))
+        except ValueError:
+            return None
+        return n * self._scale() if n > 0 else None
+
+    def set_value(self, v, *_):
+        if v is None or v <= 0:
+            self.edit.setText("")
+            return
+        if self.combo is not None:                  # largest prefix that keeps the number at 1 or more
+            best = self.prefixes[0]
+            for p in self.prefixes:
+                if v / PREFIX_SCALE[p] >= 1:
+                    best = p
+            self.combo.blockSignals(True)
+            self.combo.setCurrentIndex(self.prefixes.index(best))
+            self.combo.blockSignals(False)
+        self.edit.setText(f"{v / self._scale():.6g}")
+
+    def setFocus(self):
+        self.edit.setFocus()
+
+    def _changed(self):
+        v = self.value()
+        bad = (bool(self.edit.text().strip()) and v is None) or (self.required and v is None)
+        for target in (self, self.edit):
+            if bool(target.property("invalid")) != bad:
+                target.setProperty("invalid", bad)
+                repolish(target)
+        self.valueChanged.emit(v)
 
 
 class Spinner(QWidget):
@@ -218,38 +294,6 @@ class BusyDialog(QDialog):
             self._abort()
         else:
             super().reject()
-
-
-class EngEdit(QLineEdit):
-    """Line edit that accepts engineering notation (4.7u, 10k, 2.2nF...)."""
-
-    valueChanged = Signal(object)
-
-    def __init__(self, placeholder: str = "", unit: str = "", parent=None, required: bool = False):
-        super().__init__(parent)
-        self.unit = unit
-        self.required = required                 # outlined in red while empty or not positive
-        self.setPlaceholderText(placeholder)
-        self.textChanged.connect(self._changed)
-        if required:
-            self._changed()
-
-    def _changed(self):
-        v = self.value()
-        bad = (bool(self.text().strip()) and v is None) or (self.required and (v is None or v <= 0))
-        if bool(self.property("invalid")) != bad:
-            self.setProperty("invalid", bad)
-            repolish(self)
-        self.valueChanged.emit(v)
-
-    def value(self):
-        try:
-            return parse_eng(self.text()) if self.text().strip() else None
-        except ValueError:
-            return None
-
-    def set_value(self, v, digits: int = 5):
-        self.setText("" if v is None else fmt(v, self.unit, digits))
 
 
 class SmoothRange:

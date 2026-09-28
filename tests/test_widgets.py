@@ -1,6 +1,8 @@
 import numpy as np
 
-from lcr_studio.widgets import range_with_limits, smooth_curve
+from PySide6.QtWidgets import QApplication
+
+from lcr_studio.widgets import UnitEdit, range_with_limits, smooth_curve
 
 
 def test_smooth_curve_passes_through_points_and_stays_monotone():
@@ -28,3 +30,21 @@ def test_range_with_limits_keeps_far_limits_out_and_near_limits_in():
     assert range_with_limits(data, [650e-6]) == (620e-6, 650e-6)             # a limit 1 span away comes into view
     assert range_with_limits([9.2e-6, 9.24e-6], [12e-6]) == (9.2e-6, 9.24e-6)
     assert range_with_limits([5.0, 5.0], [5.05]) == (5.0, 5.05)              # flat data still has a usable span
+
+
+def test_unit_edit_round_trips_and_flags_missing_values():
+    _app = QApplication.instance() or QApplication([])  # noqa: F841
+    e = UnitEdit("H", required=True)
+    assert e.value() is None and e.property("invalid") is True
+    e.set_value(620e-6)
+    assert (e.edit.text(), e.combo.currentData()) == ("620", "µ") and abs(e.value() - 620e-6) < 1e-15
+    assert e.property("invalid") is False
+    e.set_value(1.5e-3)
+    assert (e.edit.text(), e.combo.currentData()) == ("1.5", "m")
+    e.combo.setCurrentIndex(e.prefixes.index("n"))                # the drop-down changes the scale
+    assert abs(e.value() - 1.5e-9) < 1e-24
+    e.edit.setText("")
+    assert e.value() is None and e.property("invalid") is True
+    pct = UnitEdit("%", prefixes=("",), required=True)
+    pct.set_value(2.5)
+    assert pct.combo is None and pct.edit.text() == "2.5" and pct.value() == 2.5
