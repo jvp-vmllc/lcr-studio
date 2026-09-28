@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QFileDialog, QF
                                QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QSizePolicy,
                                QVBoxLayout, QWidget)
 
+from .engmath import fmt
 from .theme import repolish, style_plot, theme
 
 pg.setConfigOptions(antialias=True)
@@ -381,6 +382,17 @@ def watch_manual_zoom(owner, *plots):
         plot.getViewBox().sigRangeChangedManually.connect(lambda *_: setattr(owner, "_follow", False))
 
 
+class EngAxis(pg.AxisItem):
+    """Left axis whose log-mode ticks read in engineering units (12.0 µH, 1.00 mH) instead of 0.01 / 1."""
+
+    def __init__(self, unit: str):
+        super().__init__(orientation="left")
+        self.unit = unit
+
+    def logTickStrings(self, values, scale, spacing):
+        return [fmt(10 ** v, self.unit, 3) for v in values]
+
+
 class RollAxis(pg.AxisItem):
     """Bottom axis of a rolling strip chart: ticks sit at round numbers of seconds before `now` (0 = right edge)."""
 
@@ -396,8 +408,10 @@ class RollAxis(pg.AxisItem):
 
 
 def make_plot(title_left: str = "", units_left: str = "", title_bottom: str = "", units_bottom: str = "",
-              log_x: bool = False, bottom_axis: pg.AxisItem | None = None) -> pg.PlotWidget:
-    w = pg.PlotWidget(axisItems={"bottom": bottom_axis} if bottom_axis else None)
+              log_x: bool = False, bottom_axis: pg.AxisItem | None = None,
+              left_axis: pg.AxisItem | None = None) -> pg.PlotWidget:
+    axes = {k: v for k, v in (("bottom", bottom_axis), ("left", left_axis)) if v is not None}
+    w = pg.PlotWidget(axisItems=axes or None)
     p = w.getPlotItem()
     p.setLabel("left", title_left, units=units_left)
     p.setLabel("bottom", title_bottom, units=units_bottom)

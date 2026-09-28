@@ -10,7 +10,7 @@ from PySide6.QtGui import (QColor, QFont, QFontMetricsF, QImage, QPageLayout, QP
                            QPen)
 
 from .engmath import eng_parts, fmt
-from .flyback import FlybackProfile, esr_from, evaluate, hz_label, v_label
+from .flyback import FlybackProfile, esr_from, evaluate, hz_label, point, v_label
 from .theme import UI_FONTS, pick_font
 from .ut622e import FREQ_HZ, FREQUENCIES, LEVELS
 
@@ -100,8 +100,11 @@ def tick_label(v, step, unit):
     return f"{v / scale:.{dec}f} {pre}{unit}"
 
 
-def chart(cv: Canvas, x, y, w, h, title, series, unit, xs_kind="freq", logy=False):
-    """series: [(label, color, [(x, y), ...])]. xs_kind 'freq' uses a log axis, 'level' a category axis."""
+def chart(cv: Canvas, x, y, w, h, title, series, unit, xs_kind="freq", mark=None):
+    """series: [(label, color, [(x, y), ...])]. xs_kind 'freq' uses a log axis, 'level' a category axis.
+
+    The y axis turns logarithmic when the data spans more than a decade. mark=(x, y) rings one point.
+    """
     cv.text(x, y, w, 12, title, 8.2, True)
     px, py, pw, ph = x + 44, y + 16, w - 48, h - 36
     cv.box(px, py, pw, ph, fill="#fbfcfe", stroke=GRID)
@@ -111,10 +114,17 @@ def chart(cv: Canvas, x, y, w, h, title, series, unit, xs_kind="freq", logy=Fals
         return
     ys = [v for _, v in pts_all]
     lo, hi = min(ys), max(ys)
-    pad = (hi - lo) * 0.12 or abs(hi) * 0.02 or 1e-12
-    bottom = 0.0 if lo >= 0 > lo - pad else lo - pad
-    ticks, step = nice_ticks(bottom, hi + pad, 4)
-    y0, y1 = ticks[0], ticks[-1]
+    logy = lo > 0 and hi / lo > 10
+    if logy:
+        y0, y1 = math.log10(lo) - 0.08, math.log10(hi) + 0.08
+        ticks = [m * 10 ** d for d in range(math.floor(y0), math.ceil(y1) + 1) for m in (1, 2, 5)
+                 if y0 <= math.log10(m * 10 ** d) <= y1]
+        step = None
+    else:
+        pad = (hi - lo) * 0.12 or abs(hi) * 0.02 or 1e-12
+        bottom = 0.0 if lo >= 0 > lo - pad else lo - pad
+        ticks, step = nice_ticks(bottom, hi + pad, 4)
+        y0, y1 = ticks[0], ticks[-1]
 
     if xs_kind == "freq":
         xl0, xl1 = math.log10(80), math.log10(125e3)
@@ -123,12 +133,13 @@ def chart(cv: Canvas, x, y, w, h, title, series, unit, xs_kind="freq", logy=Fals
     else:
         xmap = lambda v: px + (LEVELS.index(v) + 0.5) / len(LEVELS) * pw
         xticks = [(lv, v_label(lv)) for lv in LEVELS]
-    ymap = lambda v: py + ph - (v - y0) / (y1 - y0) * ph
+    ymap = lambda v: py + ph - ((math.log10(v) if logy else v) - y0) / (y1 - y0) * ph
 
     for t in ticks:
         yy = ymap(t)
         cv.line(px, yy, px + pw, yy, GRID, 0.4)
-        cv.text(x, yy - 5, 41, 10, tick_label(t, step, unit), 6.1, color=MUTED, align=Qt.AlignRight | Qt.AlignVCenter)
+        cv.text(x, yy - 5, 41, 10, fmt(t, unit, 2) if logy else tick_label(t, step, unit), 6.1, color=MUTED,
+                align=Qt.AlignRight | Qt.AlignVCenter)
     for xv, lab in xticks:
         xx = xmap(xv)
         cv.line(xx, py, xx, py + ph, GRID, 0.4)
@@ -144,6 +155,11 @@ def chart(cv: Canvas, x, y, w, h, title, series, unit, xs_kind="freq", logy=Fals
         cv.line(lx - tw, y + 6, lx - tw + 7, y + 6, color, 1.8)
         cv.text(lx - tw + 9, y + 1, tw, 10, label, 6.3, color=MUTED)
         lx -= tw + 5
+    if mark is not None and mark[1] is not None and mark[1] > 0:
+        mx, my = xmap(mark[0]), ymap(mark[1])
+        cv.p.setPen(QPen(QColor(INK), 1.2 * cv.s))
+        cv.p.setBrush(Qt.NoBrush)
+        cv.p.drawEllipse(QPointF(mx * cv.s, my * cv.s), 4.5 * cv.s, 4.5 * cv.s)
 
 
 def matrix_table(cv, x, y, w, title, result, unit):
@@ -254,8 +270,14 @@ def paint_report(painter: QPainter, dpi: float, profile: FlybackProfile, results
                 out.append((v_label(lv), LEVEL_COLORS[lv], sorted(pts)))
         return out
 
-    chart(cv, x0, y, chw, chh, "Primary inductance Lp", per_level(lp_res), "H")
-    chart(cv, x0 + chw + gap, y, chw, chh, "Leakage inductance Llk", per_level(llk_res), "H")
+    def spec_mark(res, freq, level):
+        pt = point(res, freq, level)
+        return (pt["hz"], pt["L"]) if pt else None
+
+    chart(cv, x0, y, chw, chh, "Primary inductance Lp", per_level(lp_res), "H",
+          mark=spec_mark(lp_res, profile.lp_freq, profile.lp_level))
+    chart(cv, x0 + chw + gap, y, chw, chh, "Leakage inductance Llk", per_level(llk_res), "H",
+          mark=spec_mark(llk_res, profile.llk_freq, profile.llk_level))
     y += chh + 6
 
     level_series = []

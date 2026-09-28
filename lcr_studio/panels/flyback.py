@@ -20,7 +20,7 @@ from ..flyback import FlybackProfile, build_steps, evaluate, hz_label, run_step,
 from ..report import LEVEL_COLORS, default_meta, export_pdf, render_image
 from ..theme import theme
 from ..ut622e import FREQ_HZ, FREQUENCIES, LEVELS
-from ..widgets import (Badge, BusyDialog, Card, Segmented, SmoothRange, UnitEdit, field_label, make_plot, muted,
+from ..widgets import (Badge, BusyDialog, Card, EngAxis, Segmented, SmoothRange, UnitEdit, field_label, make_plot, muted,
                        plot_series, range_with_limits, reveal_fraction, watch_manual_zoom)
 
 STATUS_KIND = {"done": "good", "running": "accent", "aborted": "warn", "error": "bad", "pending": ""}
@@ -269,8 +269,8 @@ class FlybackPanel(QWidget):
             card.header.addWidget(b)
         body = QHBoxLayout()
         charts = QVBoxLayout()
-        self.lp_plot = make_plot("Lp", "H", "Frequency", "", log_x=True)
-        self.llk_plot = make_plot("Llk", "H", "Frequency", "", log_x=True)
+        self.lp_plot = make_plot("Lp", "H", "Frequency", "", log_x=True, left_axis=EngAxis("H"))
+        self.llk_plot = make_plot("Llk", "H", "Frequency", "", log_x=True, left_axis=EngAxis("H"))
         ticks = [[(math.log10(FREQ_HZ[f]), f.replace("Hz", "")) for f in FREQUENCIES if f != "120Hz"],
                  [(math.log10(120), "")]]
         for plot in (self.lp_plot, self.llk_plot):
@@ -288,6 +288,7 @@ class FlybackPanel(QWidget):
         self._restyle_limits(theme.c)
         theme.changed.connect(self._restyle_limits)
         self.ease = {"lp": SmoothRange(self.lp_plot, padding=0), "llk": SmoothRange(self.llk_plot, padding=0)}
+        self._logy = {"lp": False, "llk": False}
         self._follow = True
         watch_manual_zoom(self, self.lp_plot, self.llk_plot)
         charts.addWidget(self.lp_plot)
@@ -409,8 +410,10 @@ class FlybackPanel(QWidget):
             return ""
         p = self.profile()
         freq, level = (p.lp_freq, p.lp_level) if key == "lp" else (p.llk_freq, p.llk_level)
-        pt = next((r for r in res["rows"] if r["freq"] == freq and r["level"] == level), res["rows"][-1])
-        return fmt(pt["L"], "H", 4)
+        pt = next((r for r in res["rows"] if r["freq"] == freq and r["level"] == level), None)
+        if pt is None:
+            return f"{fmt(res['rows'][-1]['L'], 'H', 4)} (latest point)"
+        return f"{fmt(pt['L'], 'H', 4)} @ {hz_label(freq)}, {v_label(level)}"
 
     def _ticked(self):
         return [s for s in self.steps if self.step_boxes[s.key].isChecked()]
@@ -576,8 +579,9 @@ class FlybackPanel(QWidget):
         self.llk_line.setPen(pg.mkPen(c["bad"], width=1, style=Qt.DashLine))
         self.llk_line.label.setColor(c["bad"])
 
-    def _place_limits(self, item, key, p):
+    def _place_limits(self, item, key, p, logy):
         """Re-add the limit band / line after a clear; returns the limit values shown, for the y range."""
+        tr = math.log10 if logy else (lambda v: v)        # items sit in view coordinates: log10 in log mode
         if key == "lp":
             item.addItem(self.lp_band)
             item.addItem(self.lp_nom_line)
@@ -587,14 +591,14 @@ class FlybackPanel(QWidget):
             if not on:
                 return []
             lo, hi = p.lp_nom * (1 - p.lp_tol / 100), p.lp_nom * (1 + p.lp_tol / 100)
-            self.lp_band.setRegion((lo, hi))
-            self.lp_nom_line.setPos(p.lp_nom)
+            self.lp_band.setRegion((tr(lo), tr(hi)))
+            self.lp_nom_line.setPos(tr(p.lp_nom))
             return [lo, hi]
         item.addItem(self.llk_line)
         self.llk_line.setVisible(bool(p.llk_max))
         if not p.llk_max:
             return []
-        self.llk_line.setPos(p.llk_max)
+        self.llk_line.setPos(tr(p.llk_max))
         return [p.llk_max]
 
     def _results_changed(self):
@@ -618,17 +622,32 @@ class FlybackPanel(QWidget):
             item.clear()
             if item.legend:
                 item.legend.clear()
-            limits = self._place_limits(item, key, p)
             res = self.results.get(key)
-            ys = [r["L"] for r in res["rows"]] if res else []
+            ys = [r["L"] for r in res["rows"] if r["L"] > 0] if res else []
+            logy = bool(ys) and max(ys) / min(ys) > 10   # a sweep spanning a decade or more reads on a log axis
+            if logy != self._logy[key]:
+                self._logy[key] = logy
+                self.ease[key].clear()
+            item.setLogMode(x=True, y=logy)
+            item.getAxis("left").enableAutoSIPrefix(not logy)     # log ticks carry their own units
+            item.setLabel("left", "Lp" if key == "lp" else "Llk", units="" if logy else "H")
+            limits = self._place_limits(item, key, p, logy)
+            freq, level = (p.lp_freq, p.lp_level) if key == "lp" else (p.llk_freq, p.llk_level)
             for lv in (LEVELS if res else ()):
                 lv_rows = sorted((r for r in res["rows"] if r["level"] == lv), key=lambda r: r["hz"])
                 if lv_rows:
                     rv = reveal if lv_rows[-1] is newest else 1.0
                     plot_series(plot, [r["hz"] for r in lv_rows], [r["L"] for r in lv_rows], LEVEL_COLORS[lv],
                                 v_label(lv), log_x=True, symbol_size=6, reveal=rv)
+            spec_pt = next((r for r in res["rows"] if r["freq"] == freq and r["level"] == level), None) if res else None
+            if spec_pt is not None and spec_pt is not newest:       # ring the point the limit is checked at
+                plot.plot([spec_pt["hz"]], [spec_pt["L"]], pen=None, symbol="o", symbolSize=15, symbolBrush=None,
+                          symbolPen=pg.mkPen(theme.c["text"], width=2))
             if ys or limits:                     # fit the curves; a limit joins the view once it is near
-                lo, hi = range_with_limits(ys, limits) if ys else (min(limits), max(limits))
+                tr = math.log10 if logy else (lambda v: v)
+                lims = [tr(v) for v in limits if v > 0]
+                vals = [tr(v) for v in ys]
+                lo, hi = range_with_limits(vals, lims) if vals else (min(lims), max(lims))
                 pad = (hi - lo) * 0.12 or abs(hi) * 0.05 or 1e-9
                 self.ease[key].set_target(lo - pad, hi + pad)
         moving = False

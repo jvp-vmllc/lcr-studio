@@ -102,3 +102,14 @@ def test_pdf_is_one_letter_page(measured, tmp_path):
     assert re.search(rb"/MediaBox\s*\[\s*0\s+0\s+612(\.0+)?\s+792(\.0+)?\s*\]", data)
     img = render_image(p, results, default_meta(), dpi=50)
     assert (img.width(), img.height()) == (425, 550)
+
+
+def test_report_handles_a_decade_wide_leakage_sweep(measured):
+    _app = QApplication.instance() or QApplication([])  # noqa: F841
+    _, p, results = measured
+    wide = {k: dict(v, rows=[dict(r) for r in v["rows"]]) for k, v in results.items()}
+    for r in wide["llk"]["rows"]:                              # a real part: leakage reads ~70x higher at 1 kHz
+        if r["freq"] == "1kHz":
+            r["L"] *= 70
+    img = render_image(p, wide, default_meta(), dpi=50)
+    assert (img.width(), img.height()) == (425, 550)
