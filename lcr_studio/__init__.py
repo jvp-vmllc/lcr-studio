@@ -1,3 +1,3 @@
 """LCR Studio - desktop application for the UNI-T UT622E LCR meter."""
 
-__version__ = "2.12.0"
+__version__ = "2.13.0"

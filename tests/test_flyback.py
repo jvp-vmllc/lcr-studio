@@ -56,9 +56,9 @@ def test_llk_has_its_own_test_condition(measured):
     _, p, results = measured
     rows, _ = evaluate(replace(p, llk_freq="1kHz", llk_level="0.1V"), results)
     conds = {r["param"]: r["cond"] for r in rows}
-    assert conds["Primary inductance Lp"].startswith("10 kHz, 1.0 V")
-    assert conds["Leakage inductance Llk"].startswith("1 kHz, 0.1 V")
-    assert conds["Leakage ratio Llk / Lp"] == "Lp 10 kHz, 1.0 V / Llk 1 kHz, 0.1 V"
+    assert conds["Primary inductance"].startswith("10 kHz, 1.0 V")
+    assert conds["Leakage inductance"].startswith("1 kHz, 0.1 V")
+    assert conds["Leakage ratio (leakage / primary)"] == "Primary 10 kHz, 1.0 V / Leakage 1 kHz, 0.1 V"
 
 
 def test_measurements_and_meter_restored(measured):
@@ -76,8 +76,8 @@ def test_evaluation_passes_and_fails(measured):
     rows, verdict = evaluate(p, results)
     assert verdict == "PASS"
     status = {r["param"]: r["status"] for r in rows}
-    assert status["Primary inductance Lp"] == "PASS"
-    assert status["Leakage inductance Llk"] == "PASS"
+    assert status["Primary inductance"] == "PASS"
+    assert status["Leakage inductance"] == "PASS"
     assert not any(r["param"].startswith(("12V", "Aux", "Turns ratio")) for r in rows)   # no secondary rows
     k = next(r for r in rows if r["param"] == "Coupling coefficient k")
     assert 0.99 < float(k["value"]) < 1.0

@@ -1,4 +1,4 @@
-"""Flyback transformer test: Lp / Llk measurements and a one-page report."""
+"""Flyback transformer test: primary and leakage inductance measurements and a one-page report."""
 from __future__ import annotations
 
 import json
@@ -156,17 +156,17 @@ class FlybackPanel(QWidget):
         self.lp_tol.setSuffix(" %")
         self.lp_tol.setValue(10)
         self.lp_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
-        col.addWidget(spec_card("Lp specification", [("Test frequency", self.lp_freq), ("Test level", self.lp_level),
-                                                     ("Nominal", self.lp_nom), ("Tolerance ±", self.lp_tol),
-                                                     ("Circuit model", self.lp_equ)]))
+        col.addWidget(spec_card("Primary inductance", [("Test frequency", self.lp_freq), ("Test level", self.lp_level),
+                                                       ("Nominal", self.lp_nom), ("Tolerance ±", self.lp_tol),
+                                                       ("Circuit model", self.lp_equ)]))
 
         self.llk_freq, self.llk_level = cond_pickers()
         self.llk_max = UnitEdit("H", required=True)
         self.llk_pct = UnitEdit("%", prefixes=("",), required=True)
         self.llk_equ = Segmented([("SER", "Series"), ("PAR", "Parallel")])
-        llk = spec_card("Llk specification", [("Test frequency", self.llk_freq), ("Test level", self.llk_level),
-                                              ("Llk max", self.llk_max), ("Llk / Lp max", self.llk_pct),
-                                              ("Circuit model", self.llk_equ)])
+        llk = spec_card("Leakage inductance", [("Test frequency", self.llk_freq), ("Test level", self.llk_level),
+                                               ("Maximum", self.llk_max), ("Leakage / primary max", self.llk_pct),
+                                               ("Circuit model", self.llk_equ)])
         self.spec_hint = muted("")
         llk.body.addWidget(self.spec_hint)
         col.addWidget(llk)
@@ -270,8 +270,8 @@ class FlybackPanel(QWidget):
             card.header.addWidget(b)
         body = QHBoxLayout()
         charts = QVBoxLayout()
-        self.lp_plot = make_plot("Lp", "H", "Frequency", "", log_x=True, left_axis=EngAxis("H"))
-        self.llk_plot = make_plot("Llk", "H", "Frequency", "", log_x=True, left_axis=EngAxis("H"))
+        self.lp_plot = make_plot("Primary inductance", "H", "Frequency", "", log_x=True, left_axis=EngAxis("H"))
+        self.llk_plot = make_plot("Leakage inductance", "H", "Frequency", "", log_x=True, left_axis=EngAxis("H"))
         ticks = [[(math.log10(FREQ_HZ[f]), f.replace("Hz", "")) for f in FREQUENCIES if f != "120Hz"],
                  [(math.log10(120), "")]]
         for plot in (self.lp_plot, self.llk_plot):
@@ -285,7 +285,7 @@ class FlybackPanel(QWidget):
         self.lp_band = pg.LinearRegionItem(orientation="horizontal", movable=False)
         self.lp_band.setZValue(-10)
         self.lp_nom_line = pg.InfiniteLine(angle=0, movable=False, label="nominal", labelOpts={"position": 0.8})
-        self.llk_line = pg.InfiniteLine(angle=0, movable=False, label="Llk max", labelOpts={"position": 0.8})
+        self.llk_line = pg.InfiniteLine(angle=0, movable=False, label="Leakage max", labelOpts={"position": 0.8})
         self._restyle_limits(theme.c)
         theme.changed.connect(self._restyle_limits)
         self.ease = {"lp": SmoothRange(self.lp_plot, padding=0), "llk": SmoothRange(self.llk_plot, padding=0)}
@@ -631,7 +631,8 @@ class FlybackPanel(QWidget):
                 self.ease[key].clear()
             item.setLogMode(x=True, y=logy)
             item.getAxis("left").enableAutoSIPrefix(not logy)     # log ticks carry their own units
-            item.setLabel("left", "Lp" if key == "lp" else "Llk", units="" if logy else "H")
+            item.setLabel("left", "Primary inductance" if key == "lp" else "Leakage inductance",
+                          units="" if logy else "H")
             limits = self._place_limits(item, key, p, logy)
             freq, level = (p.lp_freq, p.lp_level) if key == "lp" else (p.llk_freq, p.llk_level)
             for lv in (LEVELS if res else ()):
@@ -744,7 +745,7 @@ class FlybackPanel(QWidget):
             c.font = Font(bold=True)
         for r in rows:
             ws.append([r["param"], r["cond"], r["value"], r["limit"], r["status"]])
-        names = {"lp": "Lp (open)", "llk": "Llk (shorted)"}
+        names = {"lp": "Primary inductance", "llk": "Leakage inductance"}
         for key, res in self.results.items():
             sh = wb.create_sheet(names.get(key, key)[:31])
             equ = res.get("equ")

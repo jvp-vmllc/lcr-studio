@@ -177,30 +177,34 @@ def loss_figures(row, equ):
     return (1 / q if q else None), math.degrees(math.atan(q)), esr_from(row, equ)
 
 
-def points_table(cv, x, y, w, title, result, equ):
-    """Every measured point of a step with the loss figures derived from Q. Returns the y below the table."""
+def points_table(cv, x, y, w, title, result, equ, target=None):
+    """Every measured point of a step with the loss figures derived from Q; the target=(freq, level) row is
+    highlighted. Returns the y below the table."""
     cv.text(x, y, w, 11, title, 7.6, True)
     y += 12
     if not result or not result["rows"]:
         cv.text(x, y, w, 12, "not measured", 7, color=FAINT)
         return y + 12
-    cols = [("Level", 0.11, Qt.AlignLeft), ("Freq", 0.13, Qt.AlignRight), ("L", 0.19, Qt.AlignRight),
-            ("D", 0.13, Qt.AlignRight), ("Q", 0.12, Qt.AlignRight), ("Phase", 0.13, Qt.AlignRight),
-            ("ESR (Rs)" if equ == "SER" else "Rp", 0.19, Qt.AlignRight)]
+    cols = [("Level", 0.09, Qt.AlignLeft), ("Frequency", 0.14, Qt.AlignRight), ("Inductance", 0.18, Qt.AlignRight),
+            ("Dissipation", 0.14, Qt.AlignRight), ("Quality factor", 0.15, Qt.AlignRight), ("Phase", 0.10, Qt.AlignRight),
+            ("Series resistance" if equ == "SER" else "Parallel resistance", 0.20, Qt.AlignRight)]
     cv.box(x, y, w, 11, fill="#eef2f8")
     cx = x
     for name, frac, align in cols:
-        cv.text(cx + 3, y, w * frac - 6, 11, name, 6.4, True, MUTED, align | Qt.AlignVCenter)
+        cv.text(cx + 3, y, w * frac - 6, 11, name, 5.8, True, MUTED, align | Qt.AlignVCenter)
         cx += w * frac
     y += 11
     for row in sorted(result["rows"], key=lambda r: (LEVELS.index(r["level"]), r["hz"])):
+        hit = target is not None and (row["freq"], row["level"]) == tuple(target)
+        if hit:                                      # the point the limit is checked at
+            cv.box(x, y, w, 10.5, fill="#dbe7ff")
         d, theta, res = loss_figures(row, equ)
         cells = [v_label(row["level"]), hz_label(row["freq"]), fmt(row["L"], "H"),
                  f"{d:.4f}" if d is not None else "—", f"{row['Q']:.4g}" if row.get("Q") is not None else "—",
                  f"{theta:.2f}°" if theta is not None else "—", fmt(res, "Ω") if res is not None else "—"]
         cx = x
         for (_, frac, align), text in zip(cols, cells):
-            cv.text(cx + 3, y, w * frac - 6, 10.5, text, 6.4, align=align | Qt.AlignVCenter)
+            cv.text(cx + 3, y, w * frac - 6, 10.5, text, 6.4, hit, INK, align | Qt.AlignVCenter)
             cx += w * frac
         cv.line(x, y + 10.5, x + w, y + 10.5, GRID, 0.4)
         y += 10.5
@@ -230,15 +234,13 @@ def paint_report(painter: QPainter, dpi: float, profile: FlybackProfile, results
         ("Part number", profile.part_number or "—"), ("Station", meta.get("station") or "—"),
         ("Date", meta.get("date", "")),
         ("Instrument", meta.get("meter", "—")),
-        ("Lp test condition", f"{hz_label(profile.lp_freq)}, {v_label(profile.lp_level)} rms"),
-        ("Llk test condition", f"{hz_label(profile.llk_freq)}, {v_label(profile.llk_level)} rms"),
-        ("Speed · averaging", f"{meta.get('speed', '?')} · settle {profile.settle}, avg {profile.navg}"),
-        ("Open / short corr.", meta.get("correction", "—")),
+        ("Primary inductance condition", f"{hz_label(profile.lp_freq)}, {v_label(profile.lp_level)} rms"),
+        ("Leakage inductance condition", f"{hz_label(profile.llk_freq)}, {v_label(profile.llk_level)} rms"),
     ]
-    cw = W / 4
+    cw = W / 3
     cv.box(x0, y, W, 44, fill="#f6f8fb", stroke=GRID, radius=4)
     for i, (k, v) in enumerate(info):
-        cx, cy = x0 + (i % 4) * cw + 8, y + 4 + (i // 4) * 20
+        cx, cy = x0 + (i % 3) * cw + 8, y + 4 + (i // 3) * 20
         cv.text(cx, cy, cw - 10, 8, k.upper(), 5.6, True, FAINT)
         cv.text(cx, cy + 7.5, cw - 12, 11, v, 7.2, color=INK, elide=True)
     y += 52
@@ -296,15 +298,17 @@ def paint_report(painter: QPainter, dpi: float, profile: FlybackProfile, results
         pt = point(res, freq, level)
         return (pt["hz"], pt["L"], f"{hz_label(freq)}, {v_label(level)}", fmt(pt["L"], "H", 4)) if pt else None
 
-    chart(cv, x0, y, chw, chh, "Primary inductance Lp", per_level(lp_res), "H",
+    chart(cv, x0, y, chw, chh, "Primary inductance", per_level(lp_res), "H",
           mark=spec_mark(lp_res, profile.lp_freq, profile.lp_level))
-    chart(cv, x0 + chw + gap, y, chw, chh, "Leakage inductance Llk", per_level(llk_res), "H",
+    chart(cv, x0 + chw + gap, y, chw, chh, "Leakage inductance", per_level(llk_res), "H",
           mark=spec_mark(llk_res, profile.llk_freq, profile.llk_level))
     y += chh + 8
 
     # --- every measured point, with D, Q, phase and resistance derived from Q
-    y_lp = points_table(cv, x0, y, chw, "Lp points", lp_res, profile.lp_equ)
-    y_llk = points_table(cv, x0 + chw + gap, y, chw, "Llk points", llk_res, profile.llk_equ)
+    y_lp = points_table(cv, x0, y, chw, "Primary inductance points", lp_res, profile.lp_equ,
+                        (profile.lp_freq, profile.lp_level))
+    y_llk = points_table(cv, x0 + chw + gap, y, chw, "Leakage inductance points", llk_res, profile.llk_equ,
+                         (profile.llk_freq, profile.llk_level))
     y = max(y_lp, y_llk) + 8
 
     # --- footer
@@ -318,7 +322,8 @@ def paint_report(painter: QPainter, dpi: float, profile: FlybackProfile, results
         cv.line(sx, fy + 24, sx + W / 3 - 18, fy + 24, FAINT, 0.5)
         cv.text(sx, fy + 25, W / 3, 9, lab, 6.2, color=MUTED)
     cv.text(x0, PAGE_H - MARGIN - 6, W, 9,
-            f"Method: Lp with all other windings open; Llk with all other windings shorted; k = √(1 − Llk/Lp).   "
+            f"Method: primary inductance with all other windings open; leakage inductance with all other windings shorted; "
+            f"k = √(1 − Llk/Lp).   "
             f"Generated by LCR Studio v{meta.get('app_version', '')}",
             5.6, color=FAINT)
     return verdict
